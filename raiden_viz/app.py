@@ -5,6 +5,7 @@ routes are source-scoped: /api/sources/{sid}/...
 """
 
 import logging
+import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -96,8 +97,16 @@ async def _lifespan(_app):
         _warm_catalog()
     # After the catalog: its cards are what the landing page needs first, and since
     # #6 sampled them they finish in seconds, where a scan runs for ~an hour.
+    #
+    # IN A THREAD, and this is not optional. scan_start() does a full listing pass
+    # over every task SYNCHRONOUSLY — inside a global lock, so all sources serialise
+    # — before it spawns its workers. Calling it inline blocks the lifespan, so
+    # uvicorn never reaches "Application startup complete", the ALB health check
+    # never gets an answer, and ECS kills the task. That is exactly what happened on
+    # dev: the container logged the catalog warmup, then nothing, then died to
+    # "Task failed ELB health checks" on a loop.
     if config.WARM_SCANS_ON_START:
-        _warm_scans()
+        threading.Thread(target=_warm_scans, daemon=True, name="scan-warmup").start()
     yield
 
 

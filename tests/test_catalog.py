@@ -637,3 +637,42 @@ def test_lifespan_honours_the_scan_warmup_flag(monkeypatch):
     with TestClient(app_module.app):
         pass
     assert calls == [1]
+
+
+def test_scan_warmup_does_not_block_startup(monkeypatch):
+    """THE dev outage: scan_start() does a full listing pass synchronously, inside a
+    global lock, BEFORE it spawns its workers. Calling it inline from the lifespan
+    meant uvicorn never reached "Application startup complete", so the ALB health
+    check failed and ECS killed the task on a loop while the old revision served.
+    """
+    import threading as _t
+
+    from fastapi.testclient import TestClient
+
+    from raiden_viz import app as app_module
+
+    running, release, finished = _t.Event(), _t.Event(), _t.Event()
+
+    def slow_warmup():
+        running.set()
+        release.wait(timeout=10)
+        finished.set()
+
+    monkeypatch.setattr(app_module, "_warm_catalog", lambda: None)
+    monkeypatch.setattr(app_module, "_warm_scans", slow_warmup)
+    monkeypatch.setattr(app_module.config, "WARM_SCANS_ON_START", True)
+
+    try:
+        began = time.monotonic()
+        with TestClient(app_module.app) as client:
+            elapsed = time.monotonic() - began
+            assert running.wait(timeout=3), "warmup never started"
+            # THE property: startup finished while the warmup is STILL RUNNING.
+            # Asserting only that the app serves afterwards cannot tell "never
+            # blocked" from "blocked, then finished" — the first version of this
+            # test made exactly that mistake and passed against the bug.
+            assert not finished.is_set(), "startup waited for the warmup to finish"
+            assert elapsed < 2, f"startup blocked for {elapsed:.1f}s"
+            assert client.get("/api/health").status_code == 200
+    finally:
+        release.set()
