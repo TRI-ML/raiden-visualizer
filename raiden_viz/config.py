@@ -16,7 +16,12 @@ AWS_REGION = os.environ.get("RAIDEN_AWS_REGION", "us-west-2")
 #   yam:     <prefix>/<task>/episode_<uuid>/<mcap_name>  (one Foxglove-protobuf MCAP)
 #   lerobot: <prefix>/<task>/{meta,data,videos}  (LeRobot v3.0: packed parquet + AV1)
 SOURCES = [
-    {"id": "raiden", "label": "Raiden", "kind": "raiden", "bucket": S3_BUCKET, "prefix": S3_PREFIX},
+    # raiden_v1: the original raiden teleop home, from RAIDEN_S3_BUCKET/RAIDEN_S3_PREFIX
+    # (tri-ml-datasets-uw2/raiden_datasets/raw on the aws-anthony-1 deploy).
+    {"id": "raiden_v1", "label": "raiden_v1", "kind": "raiden", "bucket": S3_BUCKET, "prefix": S3_PREFIX},
+    # raiden_v2: the new tri-yam home. russet now uploads new collection here
+    # (RAIDEN_S3_BUCKET=tri-yam). Same .svo2 layout, so the raiden adapter reads it.
+    {"id": "raiden_v2", "label": "raiden_v2", "kind": "raiden", "bucket": "tri-yam", "prefix": "raiden_datasets/raw"},
     {"id": "yam", "label": "XDOF", "kind": "yam", "bucket": S3_BUCKET,
      "prefix": "yam_raw/2026_03_30_zed", "mcap_name": "output.mcap"},
     # YAM teleop recorded on the russet station, uploaded from ~/data/raw. Same
