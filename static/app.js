@@ -191,6 +191,7 @@ function showOverview() {
   $("#catalog-view").classList.add("hidden");
   $("#episode-view").classList.add("hidden");
   $("#overview-view").classList.remove("hidden");
+  setPreviewPlaying(true);
   renderOverview();
 }
 
@@ -230,9 +231,53 @@ function failBadge(msg) {
   return `<span class="cat-badge failed" title="${esc(short)}">⚠ build failed</span>`;
 }
 
-// How often to ask whether a clip has finished decoding. Decodes run minutes, so
-// this only needs to be fast enough that a ready clip does not feel delayed.
+// Clip readiness polling. A warmed clip (derived-tier hit) answers in well under a
+// second, so poll fast at first; a real decode runs minutes, so back off after that.
 const CLIP_POLL_MS = 1500;
+const CLIP_POLL_FAST_MS = 400;
+const CLIP_POLL_FAST_N = 8;      // ~3 s of fast polls before backing off
+const CLIP_LOADING_GRACE_N = 3;  // ~1.2 s: say "Loading…" before admitting "Decoding…"
+
+function sourceKind() {
+  const s = (state.sources || []).find((x) => x.id === state.source);
+  return s ? s.kind : null;
+}
+
+// What the first load of a clip costs on this source, for the tile caption.
+function decodeHint() {
+  const k = sourceKind();
+  if (k === "lerobot" || k === "lerobot_single") return "first load converts the episode clip";
+  if (k === "raiden" || k === "yam") return "first load transcodes .svo2 → mp4";
+  return "first load renders the clip";
+}
+
+// Poll /video/status until the clip is decoded. Resolves {ok: true}, {ok: false, msg}
+// on a server-side failure, or null when `stale()` says the caller navigated away.
+// `onDecoding` fires once, only if the clip is still cooking after the grace polls —
+// a cache hit never gets labelled "Decoding…".
+async function waitForClip(statusUrl, { stale = () => false, onDecoding = () => {} } = {}) {
+  let told = false;
+  for (let n = 0; ; n++) {
+    if (stale()) return null;
+    let r;
+    try {
+      r = await fetch(statusUrl);
+    } catch (_) {
+      return { ok: false, msg: "Could not reach the server" };
+    }
+    if (!r.ok) {
+      // The server distinguishes a missing camera (404) from a stub file with no
+      // video in it (422), so show what it said rather than a generic failure.
+      let msg = `Could not decode this stream (${r.status})`;
+      try { msg = (await r.json()).detail || msg; } catch (_) {}
+      return { ok: false, msg };
+    }
+    const st = await r.json();
+    if (st.ready) return { ok: true };
+    if (st.decoding && !told && n >= CLIP_LOADING_GRACE_N) { told = true; onDecoding(); }
+    await new Promise((done) => setTimeout(done, n < CLIP_POLL_FAST_N ? CLIP_POLL_FAST_MS : CLIP_POLL_MS));
+  }
+}
 
 function annBadge(a) {
   const map = {
@@ -879,6 +924,7 @@ async function renderAnalytics(taskOrder) {
   updateHoursCard(eps, stats);
   drawHistogram(eps);
   drawScatter(eps, colors);
+  renderPreview(stats.episodes || []);   // two looping episodes under the charts
 
   // Seed the episode filter from the same records the charts use. On small
   // sources this sample IS every episode; on large ones it's a sample until the
@@ -904,6 +950,94 @@ async function renderAnalytics(taskOrder) {
     s.appendChild(i);
     s.appendChild(el("span", null, t));
     legend.appendChild(s);
+  });
+}
+
+/* ---------------- Overview: two-episode video preview ---------------- */
+
+// Two episodes shown as tiny muted loops right under the charts: the first stats
+// record and the first one from another task (else the middle record), so the
+// picks are stable across reloads. Same /video/status → /video flow as the player,
+// so the tiles are cache hits after their first view.
+async function renderPreview(records) {
+  const body = $("#preview-body"), hint = $("#preview-hint");
+  body.innerHTML = "";
+  hint.textContent = "";
+  const forSource = state.source;
+  const recs = (records || []).filter((e) => e.task && e.episode);
+  if (!recs.length) { hint.textContent = "no episodes"; return; }
+  const picks = [recs[0]];
+  const second = recs.find((e) => e.task !== recs[0].task) || recs[Math.floor(recs.length / 2)];
+  if (second !== recs[0]) picks.push(second);
+  hint.textContent = picks.map((e) => e.episode).join(", ");
+  let cameras;
+  try {
+    cameras = await previewCameras(picks[0]);
+  } catch (e) {
+    hint.textContent = "preview unavailable";
+    return;
+  }
+  if (state.source !== forSource) return;
+  picks.forEach((e) => body.appendChild(previewRow(e, cameras)));
+}
+
+// Camera names for the tiles: from the catalog when it's already built (no extra
+// request), else from the first pick's episode detail.
+async function previewCameras(rec) {
+  if (!state.catalog) {
+    try { state.catalog = (await api("/api/catalog")).datasets; } catch (_) {}
+  }
+  const cat = (state.catalog || []).find((c) => c.id === state.source);
+  if (cat && cat.cameras && cat.cameras.length) return cat.cameras;
+  const detail = await api(
+    `${apiBase()}/tasks/${encodeURIComponent(rec.task)}/episodes/${encodeURIComponent(rec.episode)}`);
+  return (detail.cameras || []).filter((c) => c.has_video !== false).map((c) => c.name);
+}
+
+function previewRow(rec, cameras) {
+  const row = el("div", "pv-row");
+  const link = el("a", "pv-link mono", `${rec.task} / ${rec.episode}`);
+  link.href = "#" + [state.source, rec.task, rec.episode].map(encodeURIComponent).join("/");
+  link.onclick = (ev) => { ev.preventDefault(); selectTask(rec.task, rec.episode); };
+  row.appendChild(link);
+  const forSource = state.source;
+  const base = `${apiBase()}/tasks/${encodeURIComponent(rec.task)}/episodes/${encodeURIComponent(rec.episode)}`;
+  cameras.forEach((cam) => {
+    const tile = el("div", "pv-tile");
+    const video = document.createElement("video");
+    video.muted = true;
+    video.loop = true;
+    video.autoplay = true;
+    video.playsInline = true;
+    video.preload = "auto";
+    const overlay = el("div", "cam-overlay");
+    overlay.appendChild(el("div", "spinner"));
+    const msg = el("div", "cam-msg", "Loading…");
+    overlay.appendChild(msg);
+    tile.appendChild(video);
+    tile.appendChild(camLabel(cam));
+    tile.appendChild(overlay);
+    row.appendChild(tile);
+    const q = `camera=${encodeURIComponent(cam)}&eye=left`;
+    waitForClip(`${base}/video/status?${q}`, {
+      stale: () => state.source !== forSource,
+      onDecoding: () => { msg.textContent = "Decoding…"; },
+    }).then((res) => {
+      if (!res) return;
+      if (!res.ok) { overlay.classList.add("err"); msg.textContent = res.msg; return; }
+      video.onloadeddata = () => overlay.classList.add("hidden");
+      video.onerror = () => { overlay.classList.add("err"); msg.textContent = "Could not play this clip"; };
+      video.src = `${base}/video?${q}`;
+      video.play().catch(() => {});
+    });
+  });
+  return row;
+}
+
+// The preview keeps looping in the hidden overview otherwise.
+function setPreviewPlaying(on) {
+  document.querySelectorAll("#preview-body video").forEach((v) => {
+    if (on) v.play().catch(() => {}); else v.pause();
   });
 }
 
@@ -1419,6 +1553,7 @@ async function selectEpisode(ep) {
   renderEpisodeList();
   updateEpisodeNav();
   $("#overview-view").classList.add("hidden");
+  setPreviewPlaying(false);
   $("#episode-view").classList.remove("hidden");
   $("#ep-instruction").textContent = "Loading…";
   try {
@@ -1564,8 +1699,10 @@ function makeVideoTile(c) {
   video.muted = true;              // required for programmatic play of many tiles
   const overlay = el("div", "cam-overlay");
   overlay.appendChild(el("div", "spinner"));
-  overlay.appendChild(el("div", "cam-msg", "Decoding…"));
-  overlay.appendChild(el("div", "cam-sub", "first load transcodes .svo2 → mp4"));
+  const msgEl = el("div", "cam-msg", "Loading…");
+  const subEl = el("div", "cam-sub", "");
+  overlay.appendChild(msgEl);
+  overlay.appendChild(subEl);
 
   tile.appendChild(video);
   // EE-trace overlay canvas (only meaningful for cameras with projection params).
@@ -1628,33 +1765,15 @@ function makeVideoTile(c) {
   // balancer's 60s idle timeout severs it — which the element reports through
   // onerror as "Could not decode this stream", a decode error for a timeout, while
   // the decode goes on to succeed server-side. See raiden_viz/clips.py.
-  (async () => {
-    for (;;) {
-      if (state.task !== mountedTask || state.episode !== mountedEpisode) return;
-      let r;
-      try {
-        r = await fetch(statusUrl);
-      } catch (_) {
-        failWith("Could not reach the server");
-        return;
-      }
-      if (!r.ok) {
-        // The server distinguishes a missing camera (404) from a stub file with no
-        // video in it (422), so show what it said rather than a generic failure.
-        let msg = `Could not decode this stream (${r.status})`;
-        try { msg = (await r.json()).detail || msg; } catch (_) {}
-        failWith(msg);
-        return;
-      }
-      const st = await r.json();
-      if (st.ready) {
-        video.src = url;   // now a cache hit, so this returns promptly
-        video.load();
-        return;
-      }
-      await new Promise((done) => setTimeout(done, CLIP_POLL_MS));
-    }
-  })();
+  waitForClip(statusUrl, {
+    stale: () => state.task !== mountedTask || state.episode !== mountedEpisode,
+    onDecoding: () => { msgEl.textContent = "Decoding…"; subEl.textContent = decodeHint(); },
+  }).then((res) => {
+    if (!res) return;                 // navigated away; tile is gone
+    if (!res.ok) { failWith(res.msg); return; }
+    video.src = url;   // now a cache hit, so this returns promptly
+    video.load();
+  });
 
   state.tiles.push(tileState);
   return tile;
