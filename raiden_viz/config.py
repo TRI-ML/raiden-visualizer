@@ -60,6 +60,13 @@ SOURCES = [
     # groups episodes by their dataset task label. 3 cams (left/right/top), AV1.
     {"id": "molmoact2_yam", "label": "MolmoAct2 Bimanual YAM", "kind": "lerobot_single",
      "bucket": S3_BUCKET, "prefix": "yam_public/MolmoAct2-BimanualYAM"},
+    # Isaac sim datasets from raiden_sim2real (scripted experts on the YAM twin), one
+    # LeRobot v3.0 dataset per task folder under this prefix (native 128x128, 30 Hz,
+    # 3 cams scene/left_wrist/right_wrist, 14-D joint state + absolute joint actions).
+    # Written by raiden_sim2real/scripts/h5_to_lerobot_pi05.py + the v21->v30 converter;
+    # the source h5 + dataset card live in s3://tri-yam/sim_datasets/<name>/.
+    {"id": "yam_sim", "label": "YAM Sim (Isaac twin)", "kind": "lerobot",
+     "bucket": S3_BUCKET, "prefix": "yam_sim/lerobot"},
 ]
 
 # Sources to drop entirely at startup, by id. A deployed container cannot reach a
