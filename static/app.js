@@ -924,7 +924,7 @@ async function renderAnalytics(taskOrder) {
   updateHoursCard(eps, stats);
   drawHistogram(eps);
   drawScatter(eps, colors);
-  renderPreview(stats.episodes || []);   // two looping episodes under the charts
+  renderPreview(stats.episodes || [], taskOrder || []);   // two looping episodes per dataset
 
   // Seed the episode filter from the same records the charts use. On small
   // sources this sample IS every episode; on large ones it's a sample until the
@@ -953,32 +953,63 @@ async function renderAnalytics(taskOrder) {
   });
 }
 
-/* ---------------- Overview: two-episode video preview ---------------- */
+/* ---------------- Overview: two-episode video preview, per dataset ---------------- */
 
-// Two episodes shown as tiny muted loops right under the charts: the first stats
-// record and the first one from another task (else the middle record), so the
-// picks are stable across reloads. Same /video/status → /video flow as the player,
-// so the tiles are cache hits after their first view.
-async function renderPreview(records) {
-  const body = $("#preview-body"), hint = $("#preview-hint");
-  body.innerHTML = "";
+// Under the charts: a dataset (task) selector and two of its episodes as tiny muted
+// loops — the first and the middle one, so the picks are stable across reloads.
+// Same /video/status → /video flow as the player, so tiles are cache hits after
+// their first view. Episodes come from the stats sample when it covers the task,
+// else from that task's /episodes list.
+function renderPreview(records, taskOrder) {
+  const body = $("#preview-body"), hint = $("#preview-hint"), sel = $("#preview-task");
+  clearPreview();
   hint.textContent = "";
+  sel.innerHTML = "";
+  state.previewRecords = (records || []).filter((e) => e.task && e.episode);
+  const tasks = taskOrder.length ? taskOrder : [...new Set(state.previewRecords.map((e) => e.task))];
+  if (!tasks.length) { hint.textContent = "no episodes"; sel.classList.add("hidden"); return; }
+  sel.classList.remove("hidden");
+  tasks.forEach((t) => sel.appendChild(new Option(t, t)));
+  sel.onchange = () => showPreviewTask(sel.value);
+  showPreviewTask(tasks[0]);
+}
+
+function clearPreview() {
+  const body = $("#preview-body");
+  body.querySelectorAll("video").forEach((v) => { v.pause(); v.removeAttribute("src"); v.load(); });
+  body.innerHTML = "";
+}
+
+async function showPreviewTask(task) {
+  const body = $("#preview-body"), hint = $("#preview-hint");
+  clearPreview();
+  hint.textContent = "loading…";
   const forSource = state.source;
-  const recs = (records || []).filter((e) => e.task && e.episode);
-  if (!recs.length) { hint.textContent = "no episodes"; return; }
-  const picks = [recs[0]];
-  const second = recs.find((e) => e.task !== recs[0].task) || recs[Math.floor(recs.length / 2)];
-  if (second !== recs[0]) picks.push(second);
-  hint.textContent = picks.map((e) => e.episode).join(", ");
+  state.previewTask = task;
+  let eps = state.previewRecords.filter((e) => e.task === task).map((e) => e.episode);
+  if (eps.length < 2) {
+    try {
+      eps = (await api(`${apiBase()}/tasks/${encodeURIComponent(task)}/episodes`)).episodes || [];
+    } catch (e) {
+      hint.textContent = "preview unavailable";
+      return;
+    }
+  }
+  if (state.source !== forSource || state.previewTask !== task) return;
+  if (!eps.length) { hint.textContent = "no episodes"; return; }
+  const picks = [eps[0]];
+  const mid = eps[Math.floor(eps.length / 2)];
+  if (mid !== eps[0]) picks.push(mid);
+  hint.textContent = `${picks.join(", ")} of ${eps.length.toLocaleString()}`;
   let cameras;
   try {
-    cameras = await previewCameras(picks[0]);
+    cameras = await previewCameras({ task, episode: picks[0] });
   } catch (e) {
     hint.textContent = "preview unavailable";
     return;
   }
-  if (state.source !== forSource) return;
-  picks.forEach((e) => body.appendChild(previewRow(e, cameras)));
+  if (state.source !== forSource || state.previewTask !== task) return;
+  picks.forEach((ep) => body.appendChild(previewRow({ task, episode: ep }, cameras)));
 }
 
 // Camera names for the tiles: from the catalog when it's already built (no extra
@@ -996,11 +1027,11 @@ async function previewCameras(rec) {
 
 function previewRow(rec, cameras) {
   const row = el("div", "pv-row");
-  const link = el("a", "pv-link mono", `${rec.task} / ${rec.episode}`);
+  const link = el("a", "pv-link mono", rec.episode);
   link.href = "#" + [state.source, rec.task, rec.episode].map(encodeURIComponent).join("/");
   link.onclick = (ev) => { ev.preventDefault(); selectTask(rec.task, rec.episode); };
   row.appendChild(link);
-  const forSource = state.source;
+  const forSource = state.source, forTask = state.previewTask;
   const base = `${apiBase()}/tasks/${encodeURIComponent(rec.task)}/episodes/${encodeURIComponent(rec.episode)}`;
   cameras.forEach((cam) => {
     const tile = el("div", "pv-tile");
@@ -1020,7 +1051,7 @@ function previewRow(rec, cameras) {
     row.appendChild(tile);
     const q = `camera=${encodeURIComponent(cam)}&eye=left`;
     waitForClip(`${base}/video/status?${q}`, {
-      stale: () => state.source !== forSource,
+      stale: () => state.source !== forSource || state.previewTask !== forTask,
       onDecoding: () => { msg.textContent = "Decoding…"; },
     }).then((res) => {
       if (!res) return;
