@@ -680,20 +680,26 @@ class YamMcapSource(Source):
 
 
 class LeRobotSource(Source):
-    """LeRobot v3.0 datasets: ``<prefix>/<task>/{meta,data,videos}``.
+    """LeRobot v3.0 datasets: ``<prefix>/<task>[/<subdir>]/{meta,data,videos}``.
 
-    Each task folder is a self-contained LeRobot dataset. Unlike the raiden/yam
+    Each task folder is a self-contained LeRobot dataset. An optional ``subdir`` in the
+    spec puts the dataset one level below the task folder, for sources whose task
+    folders also carry other artefacts (yam_sim: ``sim_datasets/<name>/`` holds the
+    source h5 + dataset card, and the LeRobot copy under ``lerobot/``). Task folders
+    without ``<subdir>/meta/info.json`` are not tasks and are skipped. Unlike the raiden/yam
     layouts (one folder or one MCAP per episode), many episodes may be PACKED into
     shared parquet/mp4 files; ``meta/episodes`` maps each episode_index to its data
     file, its per-camera video file, and the ``[from_ts, to_ts]`` slice within them.
 
     Timeseries (observation.state/action, subtask labels) live in the packed data
-    parquet; video is AV1 and is transcoded to browser-safe H.264 on demand,
-    trimmed to the episode's window. Per-task metadata (info/tasks/episodes) is
-    small and read once, then memoized in memory."""
+    parquet. Video is transcoded to browser-safe H.264 on demand, trimmed to the
+    episode's window — unless the source file is ALREADY H.264 4:2:0 and holds exactly
+    this one episode, in which case it is stream-copied (no decode; see video_path).
+    Per-task metadata (info/tasks/episodes) is small and read once, then memoized."""
 
     def __init__(self, spec: dict):
         super().__init__(spec)
+        self.subdir = (spec.get("subdir") or "").strip("/")
         self._meta_cache: dict[str, dict] = {}
         self._meta_lock = threading.Lock()
 
@@ -706,7 +712,17 @@ class LeRobotSource(Source):
         return int(name.rsplit("_", 1)[-1])
 
     def _task_root(self, task: str) -> str:
-        return f"{self.prefix}/{task}"
+        root = f"{self.prefix}/{task}"
+        return f"{root}/{self.subdir}" if self.subdir else root
+
+    def list_tasks(self) -> list[str]:
+        names = super().list_tasks()
+        if not self.subdir:
+            return names
+        # With a subdir the prefix also holds folders that are not datasets (cards
+        # only); one HEAD per folder keeps those out of the task list.
+        return [t for t in names
+                if s3.try_head(f"{self._task_root(t)}/meta/info.json", bucket=self.bucket) is not None]
 
     def _load_meta(self, task: str) -> dict:
         root = self._task_root(task)
@@ -787,18 +803,68 @@ class LeRobotSource(Source):
         win = f"{from_ts:.3f}-{'end' if to_ts is None else f'{to_ts:.3f}'}"
 
         def _produce(dst: Path):
-            # The shared source mp4 is AV1 (not browser-playable) and up to a few
-            # hundred MB. Pull it to a temp file, transcode this episode's window to
-            # H.264, and drop the raw — only the trimmed clip is cached.
+            # Pull the source mp4 to a temp file and drop it afterwards — only the
+            # per-episode clip is cached. Two ways to make that clip:
+            #  - FAST PATH: the file is already H.264 4:2:0 and holds exactly this
+            #    episode (one-episode-per-file exports such as yam_sim). Stream-copy
+            #    it: no decode, milliseconds, bit-identical frames.
+            #  - otherwise (packed AV1, or a packed H.264 file where the window is a
+            #    slice): transcode the window to H.264. Cutting a slice with -c copy
+            #    would snap to keyframes, so a slice is never stream-copied.
             cache.evict(headroom_gb=min(2.0, obj.size / 1024**3 * 1.5))
             tmp = cache.path_for(f"lerobot_{obj.etag}_{camera}.src.mp4.tmp{os.getpid()}")
             try:
                 s3.download(s3key, tmp, bucket=self.bucket)
-                lerobot.transcode(tmp, dst, from_ts, to_ts, info.get("fps"))
+                if self._can_stream_copy(tmp, from_ts, to_ts, info.get("fps")):
+                    lerobot.remux(tmp, dst)
+                else:
+                    lerobot.transcode(tmp, dst, from_ts, to_ts, info.get("fps"))
             finally:
                 tmp.unlink(missing_ok=True)
 
         return cache.get_or_create(f"lerobot_{obj.etag}_{camera}_{win}.mp4", _produce)
+
+    @staticmethod
+    def _can_stream_copy(src: Path, from_ts: float, to_ts, fps) -> bool:
+        """The fast-path decision, isolated so it can be tested without ffmpeg."""
+        try:
+            probe = lerobot.probe(src)
+        except Exception:
+            return False  # unreadable/odd container: let the transcode decide (and fail loudly)
+        return lerobot.browser_playable(probe) and lerobot.covers_whole_file(
+            from_ts, to_ts, probe.get("duration"), fps)
+
+    def warm(self, task: str, cameras=None, episodes=None, workers: int = 4,
+             progress=None) -> dict:
+        """Produce (and, with the derived tier on, publish) every clip of a task so
+        first views are cache hits. Returns {"clips", "ok", "failed": [...]}.
+
+        Idempotent: video_path() returns immediately for clips already local or in
+        the derived tier. Skips failures rather than stopping — one bad file must not
+        leave the other 1499 clips cold."""
+        info = self._meta(task)["info"]
+        cams = list(cameras or info["cameras"])
+        eps = list(episodes) if episodes is not None else self.list_episodes(task)
+        jobs = [(e, c) for e in eps for c in cams]
+        failed: list[tuple[str, str, str]] = []
+        done = 0
+
+        def _one(job):
+            e, c = job
+            try:
+                self.video_path(task, e, c, "left")
+                return None
+            except Exception as ex:  # noqa: BLE001 - reported, not raised
+                return (e, c, f"{type(ex).__name__}: {ex}")
+
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            for res in pool.map(_one, jobs):
+                done += 1
+                if res is not None:
+                    failed.append(res)
+                if progress:
+                    progress(done, len(jobs), res)
+        return {"clips": len(jobs), "ok": len(jobs) - len(failed), "failed": failed}
 
     def _safe_stat(self, task, episode):
         # LeRobot per-episode stats come entirely from the in-memory-cached task

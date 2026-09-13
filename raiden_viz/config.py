@@ -14,7 +14,7 @@ AWS_REGION = os.environ.get("RAIDEN_AWS_REGION", "us-west-2")
 # dedicated source adapter (see sources.py). "kind" selects the adapter.
 #   raiden:  <prefix>/<task>/<episode>/{metadata.json, cameras/*.svo2, robot_data.npz}
 #   yam:     <prefix>/<task>/episode_<uuid>/<mcap_name>  (one Foxglove-protobuf MCAP)
-#   lerobot: <prefix>/<task>/{meta,data,videos}  (LeRobot v3.0: packed parquet + AV1)
+#   lerobot: <prefix>/<task>[/<subdir>]/{meta,data,videos}  (LeRobot v3.0: packed parquet + video)
 SOURCES = [
     {"id": "raiden", "label": "Raiden", "kind": "raiden", "bucket": S3_BUCKET, "prefix": S3_PREFIX},
     {"id": "yam", "label": "XDOF", "kind": "yam", "bucket": S3_BUCKET,
@@ -60,6 +60,16 @@ SOURCES = [
     # groups episodes by their dataset task label. 3 cams (left/right/top), AV1.
     {"id": "molmoact2_yam", "label": "MolmoAct2 Bimanual YAM", "kind": "lerobot_single",
      "bucket": S3_BUCKET, "prefix": "yam_public/MolmoAct2-BimanualYAM"},
+    # Isaac sim datasets from raiden_sim2real (scripted experts on the YAM twin). Each
+    # dataset folder s3://tri-yam/sim_datasets/<name>/ holds the source h5 + dataset
+    # card, and a LeRobot v3.0 copy under its `lerobot/` subdir (native 128x128, 30 Hz,
+    # 3 cams scene/left_wrist/right_wrist, 14-D joint state + absolute joint actions),
+    # written by raiden_sim2real's h5_to_lerobot_v30_h264 exporter as H.264 yuv420p with
+    # ONE EPISODE PER VIDEO FILE — so the adapter's stream-copy fast path applies and
+    # no episode is ever transcoded. Folders without a lerobot/ subdir (part files that
+    # keep only their card) are skipped by list_tasks.
+    {"id": "yam_sim", "label": "YAM Sim (Isaac twin)", "kind": "lerobot",
+     "bucket": "tri-yam", "prefix": "sim_datasets", "subdir": "lerobot"},
 ]
 
 # Sources to drop entirely at startup, by id. A deployed container cannot reach a
