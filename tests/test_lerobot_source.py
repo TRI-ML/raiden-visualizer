@@ -206,3 +206,57 @@ def test_remux_and_probe_against_real_ffmpeg(tmp_path):
     again = lerobot.probe(dst)
     assert again["codec"] == "h264" and abs(again["duration"] - info["duration"]) < 0.05
     assert lerobot.covers_whole_file(0.0, 1.0, again["duration"], 30)
+
+
+# ---- per-episode status -----------------------------------------------------------
+
+def _episodes_table(with_status):
+    import pyarrow as pa
+    cols = {"episode_index": [0, 1], "length": [10, 20],
+            "data/chunk_index": [0, 0], "data/file_index": [0, 0],
+            "videos/observation.images.scene_camera/chunk_index": [0, 0],
+            "videos/observation.images.scene_camera/file_index": [0, 1],
+            "videos/observation.images.scene_camera/from_timestamp": [0.0, 0.0],
+            "videos/observation.images.scene_camera/to_timestamp": [0.33, 0.66]}
+    if with_status:
+        cols["status"] = ["success", "failure"]
+    return pa.table(cols)
+
+
+def test_parse_episodes_reads_the_optional_status_column():
+    keys = {"scene_camera": "observation.images.scene_camera"}
+    rows = lerobot.parse_episodes(_episodes_table(True), keys)
+    assert [rows[i]["status"] for i in (0, 1)] == ["success", "failure"]
+    rows = lerobot.parse_episodes(_episodes_table(False), keys)
+    assert [rows[i]["status"] for i in (0, 1)] == [None, None]
+
+
+def test_status_flows_to_facts_detail_and_stat(wired, monkeypatch):
+    src, row, _ = wired
+    row["status"] = "success"
+    assert src.episode_facts("plate") == {"episode_000007": {"timestamp": None, "status": "success"}}
+    assert src.episode_stat("plate", "episode_000007")["status"] == "success"
+    # episode_detail needs the data parquet; stub the table-derived pieces.
+    monkeypatch.setattr(src, "_data_table", lambda task, meta, r: None)
+    monkeypatch.setattr(lerobot, "build_robot", lambda tbl, info: {})
+    monkeypatch.setattr(lerobot, "subtasks_to_annotations", lambda tbl: [])
+    monkeypatch.setattr(lerobot, "instruction_for", lambda tbl, tasks, r: "put the plate in the rack")
+    assert src.episode_detail("plate", "episode_000007")["status"] == "success"
+
+
+def test_single_root_facts_only_cover_the_tasks_episodes():
+    src = sources.LeRobotSingleRootSource({"id": "we", "label": "WE", "kind": "lerobot_single",
+                                           "bucket": "b", "prefix": "p"})
+    src._meta_cache["__root__"] = {"info": {}, "tasks": {}, "by_task": {"a": [0], "b": [1]},
+                           "episodes": {0: {"status": "success"}, 1: {"status": None}}}
+    assert src.episode_facts("a") == {"episode_000000": {"timestamp": None, "status": "success"}}
+    assert src.episode_facts("b") == {"episode_000001": {"timestamp": None, "status": None}}
+
+
+def test_overview_page_has_the_preview_block():
+    root = Path(__file__).resolve().parents[1] / "static"
+    html = (root / "index.html").read_text()
+    js = (root / "app.js").read_text()
+    assert 'id="preview-body"' in html and html.index('id="hist-canvas"') < html.index('id="preview-body"')
+    assert "async function waitForClip" in js and "renderPreview(stats.episodes" in js
+    assert '"Loading…"' in js

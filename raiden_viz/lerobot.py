@@ -83,6 +83,9 @@ def parse_episodes(table, video_keys: dict) -> dict:
     d_chunk = col("data/chunk_index") or [0] * len(idxs)
     d_file = col("data/file_index") or [0] * len(idxs)
     ep_tasks = col("tasks") or [None] * len(idxs)
+    # Optional per-episode outcome ("success" | "failure"); our sim exports write it,
+    # stock LeRobot datasets don't.
+    statuses = col("status") or [None] * len(idxs)
 
     # Pre-list each camera's four columns once (avoid per-row scalar access).
     vcols = {}
@@ -113,6 +116,7 @@ def parse_episodes(table, video_keys: dict) -> dict:
             "data_chunk": d_chunk[i],
             "data_file": d_file[i],
             "tasks": ep_tasks[i],
+            "status": statuses[i],
             "videos": vids,
         }
     return out

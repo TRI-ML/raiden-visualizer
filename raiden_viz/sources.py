@@ -782,7 +782,7 @@ class LeRobotSource(Source):
             metadata["control_hz"] = info["fps"]
         return {
             "source": self.id, "task": task, "episode": episode,
-            "instruction": instruction, "status": None,
+            "instruction": instruction, "status": row.get("status"),
             "metadata": metadata, "calibration": None,
             "cameras": cameras, "robot": robot,
             "annotations": annotations,
@@ -868,6 +868,13 @@ class LeRobotSource(Source):
                     progress(done, len(jobs), res)
         return {"clips": len(jobs), "ok": len(jobs) - len(failed), "failed": failed}
 
+    def episode_facts(self, task: str) -> dict:
+        # meta/episodes is already memoized, so labelling the browse list costs
+        # nothing extra. No timestamps in the format; status only where the
+        # dataset wrote one (our sim exports do).
+        return {self._ep_name(i): {"timestamp": None, "status": row.get("status")}
+                for i, row in self._meta(task)["episodes"].items()}
+
     def _safe_stat(self, task, episode):
         # LeRobot per-episode stats come entirely from the in-memory-cached task
         # meta, so skip the base class's etag-keyed disk cache (one etag per task
@@ -892,7 +899,7 @@ class LeRobotSource(Source):
             "task": task, "episode": episode,
             "duration_s": dur, "robot_frames": row.get("length"),
             "robot_hz": info.get("fps"), "num_cameras": len(info["cameras"]),
-            "status": None, "station": None, "teacher": None, "control": None,
+            "status": row.get("status"), "station": None, "teacher": None, "control": None,
             "timestamp": None,
             "has_annotations": None,  # would require reading each episode's data parquet
         }
@@ -945,6 +952,11 @@ class LeRobotSingleRootSource(LeRobotSource):
         idxs = self._meta()["by_task"].get(task, [])
         # oldest-first (ascending episode_index) to match the other sources' ordering
         return [self._ep_name(i) for i in sorted(idxs)]
+
+    def episode_facts(self, task: str) -> dict:
+        meta = self._meta()
+        return {self._ep_name(i): {"timestamp": None, "status": meta["episodes"][i].get("status")}
+                for i in meta["by_task"].get(task, [])}
 
     def _row(self, task: str, episode: str) -> tuple[dict, dict]:
         meta = self._meta()
