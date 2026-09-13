@@ -19,6 +19,7 @@ trimmed to the episode's ``[from_timestamp, to_timestamp]`` window in the shared
 """
 
 import io
+import json
 import subprocess
 from collections import OrderedDict
 from pathlib import Path
@@ -232,6 +233,54 @@ def instruction_for(table, task_map: dict, row: dict):
     if isinstance(tasks, (list, tuple)) and tasks:
         return ", ".join(str(t) for t in tasks)
     return None
+
+
+def probe(path: Path) -> dict:
+    """Codec / pixel format / duration of the first video stream, via ffprobe.
+
+    ``duration`` is the container duration in seconds (None if ffprobe cannot say).
+    Raises ``subprocess.CalledProcessError`` on an unreadable file."""
+    cmd = ["ffprobe", "-v", "error", "-select_streams", "v:0",
+           "-show_entries", "stream=codec_name,pix_fmt:format=duration",
+           "-of", "json", str(path)]
+    out = subprocess.run(cmd, check=True, capture_output=True, text=True).stdout
+    j = json.loads(out)
+    stream = (j.get("streams") or [{}])[0]
+    dur = (j.get("format") or {}).get("duration")
+    return {
+        "codec": stream.get("codec_name"),
+        "pix_fmt": stream.get("pix_fmt"),
+        "duration": float(dur) if dur not in (None, "N/A") else None,
+    }
+
+
+def browser_playable(info: dict) -> bool:
+    """H.264 in 4:2:0 is what every browser's <video> decodes without a transcode."""
+    return info.get("codec") == "h264" and info.get("pix_fmt") in ("yuv420p", "yuvj420p")
+
+
+def covers_whole_file(from_ts: float, to_ts, duration, fps=None) -> bool:
+    """True when the episode's ``[from_ts, to_ts]`` window IS the file: starts at 0 and
+    ends within one frame (or 50 ms) of the container duration. That is the case for
+    one-episode-per-file exports and is what makes a stream copy exact — cutting a
+    window out of a packed file with ``-c copy`` would snap to keyframes."""
+    if from_ts and from_ts > 1e-3:
+        return False
+    if to_ts is None:
+        return True
+    if duration is None:
+        return False
+    tol = max(0.05, 1.5 / fps) if fps else 0.05
+    return to_ts >= duration - tol
+
+
+def remux(src: Path, dst: Path) -> dict:
+    """Stream-copy an already browser-playable mp4 into a faststart mp4: no decode,
+    no re-encode, milliseconds. Used when the source file is exactly one episode."""
+    cmd = ["ffmpeg", "-y", "-loglevel", "error", "-i", str(src),
+           "-c", "copy", "-movflags", "+faststart", "-f", "mp4", str(dst)]
+    subprocess.run(cmd, check=True, capture_output=True)
+    return {"remuxed": True}
 
 
 def transcode(src: Path, dst: Path, from_ts: float = 0.0, to_ts=None, fps=None) -> dict:

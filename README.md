@@ -24,6 +24,7 @@ a one-line config entry.
 | `abc130k_val` | ABC-130k (val) | MCAP | ABC-130k val split |
 | `worldengine` | WorldEngine | LeRobot v3.0 | `<prefix>/<task>/{meta,data,videos}` (one dataset per task folder) |
 | `molmoact2_yam` | MolmoAct2 Bimanual YAM | LeRobot v3.0 | `<prefix>/{meta,data,videos}` (single dataset, grouped by internal task) |
+| `yam_sim` | YAM Sim (Isaac twin) | LeRobot v3.0 | `s3://tri-yam/sim_datasets/<name>/lerobot/{meta,data,videos}` (raiden_sim2real scripted-expert datasets; H.264, one episode per video file) |
 
 Four adapter kinds cover these:
 
@@ -32,7 +33,8 @@ Four adapter kinds cover these:
 - **`yam`** — one Foxglove-protobuf MCAP per episode (H.264/H.265 video +
   RobotState/GripperState + optional `/subtask-annotation`).
 - **`lerobot`** — LeRobot v3.0, one self-contained dataset **per task folder**
-  under the prefix (packed parquet timeseries + AV1 video).
+  under the prefix (packed parquet timeseries + video), optionally one level down
+  at `<task>/<subdir>/` (`"subdir"` in the spec; folders without it are skipped).
 - **`lerobot_single`** — LeRobot v3.0, a **single** dataset at the prefix root;
   its tens of thousands of episodes are grouped by their internal task label.
 
@@ -71,7 +73,10 @@ to `ffmpeg`, crops to a single eye (the stream is side-by-side stereo, e.g.
 dependencies are `mcap` (pip) and `ffmpeg` — **the proprietary ZED SDK is not
 needed**. The `yam` MCAP source decodes similarly (stream-copy H.264,
 transcode H.265→H.264); LeRobot sources transcode **AV1→H.264**, trimmed to each
-episode's `[from_ts, to_ts]` window within a shared packed video file.
+episode's `[from_ts, to_ts]` window within a shared packed video file — unless the
+source file is already H.264 4:2:0 **and** holds exactly that one episode, in which
+case it is stream-copied (no decode). `yam_sim` is exported that way on purpose, so
+its clips cost a ~1 MB download and a remux, never a transcode.
 
 Decoded clips are cached on disk (keyed by the S3 ETag) so repeat views are
 instant.
@@ -118,6 +123,20 @@ Then open `http://<host-ip>:8080/`. Links are shareable via the URL hash
 The set of sources is defined in `raiden_viz/config.py` (`SOURCES`). A source
 flagged `requires_access` auto-hides on hosts whose credentials can't read its
 bucket.
+
+### Pre-rendering clips (`raiden_viz.warm`)
+
+```bash
+RAIDEN_DERIVED_BUCKET=tri-rse-yam-data-visualizer-prod-derived \
+  uv run python -m raiden_viz.warm --source yam_sim --task plate_rack_front2_tbl   # or --all
+```
+
+Produces every episode × camera clip of a LeRobot task through the normal
+`video_path()` path and, with the derived tier configured, publishes it there — so
+the deployed app answers each first view with a 302 to a presigned URL instead of a
+decode. Run it from any box whose credentials can read the source bucket and write
+the derived bucket (same `RAIDEN_DERIVED_BUCKET`/`RAIDEN_DERIVED_PREFIX` as the
+deployment). Idempotent; re-run after adding episodes.
 
 ## HTTP API
 
@@ -190,7 +209,8 @@ raiden_viz/
   s3.py            S3 browse / fetch helpers
   svo.py           .svo2 (MCAP + H.264) -> MP4 decoder
   yam.py           YAM MCAP decode (video + robot state + annotations)
-  lerobot.py       LeRobot v3.0 parse (parquet timeseries + AV1 video)
+  lerobot.py       LeRobot v3.0 parse (parquet timeseries + video: probe/remux/transcode)
+  warm.py          CLI: pre-render a LeRobot task's clips into the cache tiers
   robot_data.py    robot_data.npz -> plot-ready series
   calib_overlay.py calibration-check overlay renderer
   cache.py         disk cache with per-key locks + LRU eviction
