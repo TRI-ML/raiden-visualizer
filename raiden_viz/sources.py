@@ -310,14 +310,16 @@ class Source:
     def _scan_id(self) -> str:
         return hashlib.sha1(f"{self.id}:{self.bucket}:{self.prefix}".encode()).hexdigest()[:12]
 
-    def scan_start(self) -> dict:
+    def scan_start(self, force: bool = False) -> dict:
         """Begin (or resume) a background full scan of every episode's stats.
         Returns an immediate snapshot; poll scan_snapshot() for progress. Idempotent:
-        a scan already running/finished for this source is reused."""
+        a scan already running/finished for this source is reused — unless ``force``,
+        which discards a FINISHED scan and starts over (a scan that ran before a
+        dataset was uploaded is complete and wrong; a running one is left alone)."""
         sid = self._scan_id()
         with _SCANS_GUARD:
             st = _SCANS.get(sid)
-            if st and (st["running"] or st["done"]):
+            if st and (st["running"] or (st["done"] and not force)):
                 return self._snapshot(st)
             pairs, total = self._stat_pairs(full=True)
             st = {"running": True, "done": False, "total": total,

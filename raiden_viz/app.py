@@ -352,10 +352,12 @@ def stats(sid: str, full: bool = Query(False)):
 
 
 @app.post("/api/sources/{sid}/scan")
-def scan_start(sid: str):
+def scan_start(sid: str, force: bool = Query(False)):
     """Kick off (or resume) a cached background full scan of every episode's cheap
-    stats — the data behind the episode filter. Returns an immediate snapshot."""
-    return _src(sid).scan_start()
+    stats — the data behind the episode filter. Returns an immediate snapshot.
+    ``?force=true`` rescans a source whose finished scan predates its data (e.g. a
+    dataset uploaded after boot); a scan still running is never interrupted."""
+    return _src(sid).scan_start(force=force)
 
 
 @app.get("/api/sources/{sid}/scan")

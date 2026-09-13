@@ -86,6 +86,7 @@ def fetch_remote(cache_name: str, dest: Path) -> bool:
         tmp.unlink(missing_ok=True)
         return False
     tmp.replace(dest)
+    note_produced(dest.stat().st_size)
     return True
 
 
@@ -165,6 +166,7 @@ def get_or_create(cache_name: str, produce, remote: bool = True) -> Path:
         tmp = dest.with_suffix(dest.suffix + f".tmp{os.getpid()}_{int(time.time()*1000)%100000}")
         produce(tmp)
         tmp.replace(dest)
+        note_produced(dest.stat().st_size)
         if remote:
             push_remote(cache_name, dest)
     _maybe_evict()
@@ -218,26 +220,64 @@ def put_json(cache_name: str, value: dict, remote: bool = False) -> None:
         push_remote(cache_name, dest)
 
 
-def evict(headroom_gb: float = 0.0) -> None:
+# Eviction bookkeeping. A full walk of CACHE_DIR is NOT cheap on the deployed task:
+# the boot scan leaves one small JSON card per episode there (~240k files for the
+# eight raiden/yam sources), and stat-ing them all took 3-4 s on Fargate's ephemeral
+# disk. evict() used to do that walk twice per clip (before and after producing it),
+# which put ~8 s on every cold yam_sim clip whose actual work is 0.5 s — and ten
+# concurrent producers walking 240k files each starved the health check into 502s.
+# So: remember the usage from the last walk, keep it roughly current as artifacts
+# are produced, and only walk again when the estimate says we are near the cap or
+# the last walk is stale.
+_evict_state = {"last_walk": 0.0, "usage": 0}
+_evict_guard = threading.Lock()
+EVICT_WALK_INTERVAL_S = 300.0
+
+
+def note_produced(nbytes: int) -> None:
+    """Fold a freshly produced artifact into the usage estimate."""
+    with _evict_guard:
+        _evict_state["usage"] += max(0, int(nbytes))
+
+
+def evict(headroom_gb: float = 0.0, force: bool = False) -> None:
     """Evict oldest cached files until usage is under (cap - headroom).
 
     Pass headroom_gb before a large download so there's room for it. In-flight
-    ``.tmp`` files are ignored (not counted, not evicted)."""
+    ``.tmp`` files are ignored (not counted, not evicted).
+
+    The directory is only walked when the running usage estimate (last walk plus
+    everything produced since) says the cap could be exceeded, or the last walk is
+    older than EVICT_WALK_INTERVAL_S, or ``force`` is set. Under the cap with a
+    fresh estimate this is a dictionary read."""
     if config.CACHE_MAX_GB <= 0:
         return
-    files = [p for p in config.CACHE_DIR.glob("*") if p.is_file() and ".tmp" not in p.name]
-    total = sum(p.stat().st_size for p in files)
     limit = max(0, (config.CACHE_MAX_GB - headroom_gb)) * (1024**3)
-    if total <= limit:
-        return
-    for p in sorted(files, key=lambda x: x.stat().st_mtime):  # oldest first
+    now = time.time()
+    with _evict_guard:
+        fresh = now - _evict_state["last_walk"] < EVICT_WALK_INTERVAL_S
+        if not force and fresh and _evict_state["usage"] <= limit:
+            return
+    files = [p for p in config.CACHE_DIR.glob("*") if p.is_file() and ".tmp" not in p.name]
+    sizes = {}
+    for p in files:
         try:
-            total -= p.stat().st_size
-            p.unlink()
+            sizes[p] = p.stat()
         except OSError:
             continue
-        if total <= limit:
-            break
+    total = sum(st.st_size for st in sizes.values())
+    if total > limit:
+        for p in sorted(sizes, key=lambda x: sizes[x].st_mtime):  # oldest first
+            try:
+                p.unlink()
+                total -= sizes[p].st_size
+            except OSError:
+                continue
+            if total <= limit:
+                break
+    with _evict_guard:
+        _evict_state["last_walk"] = now
+        _evict_state["usage"] = total
 
 
 def _maybe_evict() -> None:
