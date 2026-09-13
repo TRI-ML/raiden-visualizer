@@ -258,5 +258,5 @@ def test_overview_page_has_the_preview_block():
     html = (root / "index.html").read_text()
     js = (root / "app.js").read_text()
     assert 'id="preview-body"' in html and html.index('id="hist-canvas"') < html.index('id="preview-body"')
-    assert "async function waitForClip" in js and "renderPreview(stats.episodes" in js
+    assert "async function waitForClip" in js and "renderPreview(stats.episodes" in js and "id=\"preview-task\"" in html
     assert '"Loading…"' in js
