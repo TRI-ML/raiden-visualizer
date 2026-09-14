@@ -282,38 +282,59 @@ function posterUrl(base, query) {
   return (k === "lerobot" || k === "lerobot_single") ? `${base}/video/poster?${query}` : null;
 }
 
-// A dataset preview: lazy poster <img> (302 to S3) that swaps to the pre-rendered
-// muted looping clip while hovered (or after a tap on touch). Only the hovered box
-// ever plays, and the box has a fixed aspect so nothing shifts while it loads.
-// `pv` is the persisted {task, episode, camera, cameras} chosen at index-build time.
-function previewBox(sid, pv, { label = true } = {}) {
-  const box = el("div", "pv-box");
-  if (!pv || !pv.episode || !pv.camera) { box.classList.add("empty"); return box; }
+// A dataset preview: a poster <img> that loads when the box scrolls into view (one
+// request: 302 to S3) and swaps to the small pre-rendered 5 s clip while hovered
+// (tap on touch). preload="none" until hover; the poster stays until the clip has
+// data; only the hovered box ever plays; fixed aspect => no layout shift.
+// `pv` is the persisted entry {task, episode, camera, cameras, poster_name,
+// clip_name, poster_names, clip_names} chosen at index-build time — nothing here
+// asks the API for episodes, details or clip status.
+const PV_OBSERVER = ("IntersectionObserver" in window)
+  ? new IntersectionObserver((entries) => {
+      entries.forEach((e) => {
+        if (!e.isIntersecting) return;
+        const img = e.target;
+        PV_OBSERVER.unobserve(img);
+        if (img.dataset.src) { img.src = img.dataset.src; delete img.dataset.src; }
+      });
+    }, { rootMargin: "200px" })
+  : null;
+
+function previewAssetUrls(sid, pv) {
+  const pName = pv.poster_name || (pv.poster_names && pv.poster_names[pv.camera]);
+  const cName = pv.clip_name || (pv.clip_names && pv.clip_names[pv.camera]);
   const base = `/api/sources/${encodeURIComponent(sid)}/tasks/${encodeURIComponent(pv.task)}` +
                `/episodes/${encodeURIComponent(pv.episode)}`;
   const q = `camera=${encodeURIComponent(pv.camera)}&eye=left`;
-  // Artifact names recorded at build time skip every per-request lookup.
-  const pName = pv.poster_name || (pv.poster_names && pv.poster_names[pv.camera]);
-  const posterSrc = pName ? `/api/artifact/${encodeURIComponent(pName)}` : `${base}/video/poster?${q}`;
-  const clipSrc = pv.clip_name ? `/api/artifact/${encodeURIComponent(pv.clip_name)}` : `${base}/video?${q}`;
+  return {
+    poster: pName ? `/api/artifact/${encodeURIComponent(pName)}` : `${base}/video/poster?${q}`,
+    clip: cName ? `/api/artifact/${encodeURIComponent(cName)}` : `${base}/video?${q}`,
+  };
+}
+
+function previewBox(sid, pv, { label = true } = {}) {
+  const box = el("div", "pv-box");
+  if (!pv || !pv.episode || !pv.camera) { box.classList.add("empty"); return box; }
+  const urls = previewAssetUrls(sid, pv);
   const img = document.createElement("img");
-  img.loading = "lazy";
   img.decoding = "async";
   img.alt = "";
-  img.src = posterSrc;
   img.onload = () => img.classList.add("loaded");
   img.onerror = () => { img.remove(); box.classList.add("empty"); };
+  if (PV_OBSERVER) { img.dataset.src = urls.poster; PV_OBSERVER.observe(img); }
+  else { img.loading = "lazy"; img.src = urls.poster; }
   box.appendChild(img);
   if (label) box.appendChild(el("div", "pv-cam", prettyCam(pv.camera)));
   let video = null;
   const play = () => {
     if (video || box.classList.contains("empty")) return;
     video = document.createElement("video");
-    video.muted = true; video.loop = true; video.autoplay = true; video.playsInline = true;
-    video.poster = img.src;
-    video.src = clipSrc;
+    video.muted = true; video.loop = true; video.playsInline = true;
+    video.preload = "none";
+    video.src = urls.clip;
+    video.onloadeddata = () => video.classList.add("ready");   // poster shows until then
     video.onerror = () => stop();
-    box.insertBefore(video, box.firstChild.nextSibling);
+    box.appendChild(video);
     video.play().catch(() => {});
   };
   const stop = () => { if (!video) return; video.pause(); video.removeAttribute("src"); video.load(); video.remove(); video = null; };
@@ -331,7 +352,7 @@ function previewBox(sid, pv, { label = true } = {}) {
 function previewStrip(sid, pv) {
   const strip = el("div", "cat-strip");
   (pv.cameras || []).slice(0, 4).forEach((cam) => {
-    const sub = { ...pv, camera: cam, poster_name: null, clip_name: cam === pv.camera ? pv.clip_name : null };
+    const sub = { ...pv, camera: cam, poster_name: null, clip_name: null };   // per-camera names via *_names
     strip.appendChild(previewBox(sid, sub, { label: false }));
   });
   return strip;

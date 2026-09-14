@@ -27,7 +27,7 @@ from pathlib import Path
 
 import logging
 
-from . import cache, calib_overlay, config, fk, lerobot, robot_data, s3, svo, yam
+from . import cache, calib_overlay, config, fk, lerobot, previews, robot_data, s3, svo, yam
 
 # In-flight/finished background stat scans, keyed by a per-source scan id. Held in
 # memory (a scan is cheap to restart and its per-episode records are disk-cached).
@@ -194,9 +194,63 @@ class Source:
             if cached is not None and now - cached[0] < config.OVERVIEW_TTL_S:
                 return dict(cached[1])
         built = self._build_overview()
+        # Small precomputed previews (poster + 5 s clip names) per task, when the
+        # preview warm has run for this source; one JSON read, memoized.
+        pv = self.previews()
+        for row in built.get("tasks", []):
+            if row.get("task") in pv:
+                row["preview"] = pv[row["task"]]
         with self._overview_lock:
             self._overview_cached = (now, built)
         return dict(built)
+
+    # ---- small per-task previews (see previews.py) ----------------------------------
+
+    def previews(self) -> dict:
+        """{task: preview entry} from the persisted previews blob; {} when the preview
+        warm has never run for this source. Memoized per container."""
+        with self._overview_lock:
+            pv = getattr(self, "_previews_cached", None)
+        if pv is None:
+            blob = cache.get_json(previews.blob_name(self.id), remote=True) or {}
+            pv = blob.get("tasks", {}) if blob.get("v") == previews.PREVIEWS_V else {}
+            with self._overview_lock:
+                self._previews_cached = pv
+        return pv
+
+    def preview_warm(self, tasks=None, progress=None, only_missing: bool = True) -> dict:
+        """Build the small preview assets (poster + 5 s clip per camera) for the first
+        episode of every task and persist the blob. Sequential: one task at a time,
+        one S3 range read per raw camera file — cheap enough to run beside traffic.
+        Resumable: the blob is rewritten after every task."""
+        import tempfile
+        current = dict(self.previews())
+        todo = [t for t in (tasks or self.list_tasks()) if not (only_missing and t in current)]
+        failed = []
+        for i, task in enumerate(todo):
+            try:
+                eps = self.list_episodes(task)
+                if not eps:
+                    continue
+                with tempfile.TemporaryDirectory(dir=str(config.CACHE_DIR)) as d:
+                    assets = previews.build_for(self, task, eps[0], Path(d))
+                entry = previews.entry_from(eps[0], assets)
+                if entry is None:
+                    failed.append((task, "no camera frames"))
+                else:
+                    current[task] = entry
+                    cache.put_json(previews.blob_name(self.id),
+                                   {"v": previews.PREVIEWS_V, "built_at": time.time(), "tasks": current},
+                                   remote=True)
+                    with self._overview_lock:
+                        self._previews_cached = current
+                        self._overview_cached = None      # overview rows pick the entry up
+            except Exception as ex:  # noqa: BLE001
+                log.exception("preview warm failed for %s/%s", self.id, task)
+                failed.append((task, f"{type(ex).__name__}: {ex}"))
+            if progress:
+                progress(i + 1, len(todo), failed[-1] if failed and failed[-1][0] == task else None)
+        return {"tasks": len(todo), "ok": len(todo) - len(failed), "failed": failed}
 
     def _build_overview(self) -> dict:
         tasks = self.list_tasks()

@@ -123,6 +123,12 @@ def _pick_preview(src, cams: list[str]) -> dict | None:
     thumbnail. Its poster is produced here (one ffmpeg frame) so the card can 302 to it.
     """
     try:
+        # Preferred: the small precomputed assets from the preview warm (any kind).
+        pv = src.previews() if hasattr(src, "previews") else {}
+        if pv:
+            for task in src.list_tasks():
+                if task in pv:
+                    return {"task": task, **pv[task]}
         if hasattr(src, "source_index"):
             for t in src.source_index().get("tasks", []):
                 if t.get("preview"):

@@ -426,6 +426,62 @@ def warm_start(sid: str, task: str, workers: int = Query(3), posters: bool = Que
     return dict(st)
 
 
+@app.get("/api/sources/{sid}/previews")
+def previews_all(sid: str):
+    """{task: {episode, camera, cameras, poster_name, clip_name, poster_names,
+    clip_names}} for every task with a precomputed preview — one fetch, then
+    GET /api/artifact/{name} per asset. This is what external pages (yam_eval's
+    Data page) should render from."""
+    return {"source": sid, "tasks": _src(sid).previews()}
+
+
+@app.post("/api/sources/{sid}/previews/warm")
+def previews_warm_start(sid: str, task: str | None = Query(None), only_missing: bool = Query(True)):
+    """Build the small preview assets for every task of a source (or one task) in the
+    background, one task at a time. Raw sources are read by S3 range (file head),
+    never decoded in full."""
+    src = _src(sid)
+    key = f"{sid}/__previews__"
+    with _WARMS_LOCK:
+        st = _WARMS.get(key)
+        if st and st["running"]:
+            return dict(st)
+        st = _WARMS[key] = {"running": True, "done": False, "total": 0, "completed": 0,
+                            "failed": 0, "error": None, "started_at": time.time(), "result": None}
+
+    def progress(done, total, res):
+        st["completed"], st["total"] = done, total
+        if res is not None:
+            st["failed"] += 1
+
+    def run():
+        try:
+            st["result"] = src.preview_warm(tasks=[task] if task else None, progress=progress,
+                                            only_missing=only_missing)
+        except Exception as e:  # noqa: BLE001
+            logger.exception("preview warm failed for %s", key)
+            st["error"] = str(e)
+        finally:
+            st["running"], st["done"] = False, True
+
+    threading.Thread(target=run, daemon=True, name=f"previews-{sid}").start()
+    return dict(st)
+
+
+@app.get("/api/sources/{sid}/previews/warm")
+def previews_warm_status(sid: str):
+    with _WARMS_LOCK:
+        st = _WARMS.get(f"{sid}/__previews__")
+    if st is None:
+        return {"running": False, "done": False}
+    out = dict(st)
+    if out.get("result"):
+        out["result"] = {**{k: v for k, v in out["result"].items() if k != "failed"},
+                         "failed_n": len(out["result"].get("failed", [])),
+                         "failed_tasks": [f[0] for f in out["result"].get("failed", [])][:20]}
+    return out
+
+
 @app.get("/api/sources/{sid}/tasks/{task}/warm")
 def warm_status(sid: str, task: str):
     with _WARMS_LOCK:
