@@ -99,6 +99,10 @@ def _ee_traces(npz_path, calibration) -> dict | None:
     return {"time": times, "duration_s": round(dur, 3), "arms": arms, "cameras": cams}
 
 
+def poster_name(clip_name: str) -> str:
+    return clip_name[:-4] + ".jpg" if clip_name.endswith(".mp4") else clip_name + ".jpg"
+
+
 class Source:
     def __init__(self, spec: dict):
         self.id = spec["id"]
@@ -134,6 +138,23 @@ class Source:
         for a clip the derived tier already holds. Raises like video_path for a
         missing camera."""
         return None
+
+    def poster_path(self, task: str, episode: str, camera: str, eye: str) -> Path:
+        """First-frame JPEG of a clip that is ALREADY rendered (local or derived
+        tier). Never decodes: a poster is a nicety, a decode is minutes. Adapters
+        that can render cheaply (LeRobot) override this."""
+        name = self.video_cache_name(task, episode, camera, eye)
+        if not name:
+            raise FileNotFoundError("no posters for this source")
+        pname = poster_name(name)
+
+        def _produce(dst: Path):
+            clip = cache.path_for(name)
+            if not (clip.exists() and clip.stat().st_size > 0) and not cache.exists(name):
+                raise FileNotFoundError("clip is not rendered yet")
+            lerobot.poster(clip, dst)
+
+        return cache.get_or_create(pname, _produce, fetch=False)
 
     def episode_facts(self, task: str) -> dict:
         """Cheap per-episode facts for the browse list: {episode: {timestamp, status}}.
@@ -482,6 +503,13 @@ class RaidenSource(Source):
             "ee_traces": ee_traces,
         }
 
+    def video_cache_name(self, task, episode, camera, eye):
+        key = f"{self._ep_prefix(task, episode)}/cameras/{camera}.svo2"
+        obj = s3.try_head(key, bucket=self.bucket)
+        if obj is None:
+            raise FileNotFoundError(f"camera not found: {camera}")
+        return f"{obj.etag}_{camera}_{eye}.mp4"
+
     def video_path(self, task, episode, camera, eye):
         key = f"{self._ep_prefix(task, episode)}/cameras/{camera}.svo2"
         obj = s3.try_head(key, bucket=self.bucket)
@@ -682,6 +710,9 @@ class YamMcapSource(Source):
             "robot": ex.get("robot"), "annotations": ex.get("annotations") or [],
         }
 
+    def video_cache_name(self, task, episode, camera, eye):
+        return f"yam_{self._head(task, episode).etag}_{camera}.mp4"
+
     def video_path(self, task, episode, camera, eye):
         obj = self._head(task, episode)
         mp4 = cache.path_for(f"yam_{obj.etag}_{camera}.mp4")
@@ -786,8 +817,10 @@ class LeRobotSource(Source):
 
     # ---- source index: everything the overview / stats / browse pages need ------
 
+    SOURCE_INDEX_V = 2   # v2: per-task preview (episode, camera) + facts
+
     def _source_blob(self) -> str:
-        return f"lerobot_source_{self.id}_v{self.INDEX_V}.json"
+        return f"lerobot_source_{self.id}_v{self.SOURCE_INDEX_V}.json"
 
     def source_index(self) -> dict:
         """{built_at, tasks: [{task, ikey, episodes, latest, cameras, fps}], stats: [...]}.
@@ -799,7 +832,7 @@ class LeRobotSource(Source):
             idx = self._source_index
             if idx is None:
                 idx = cache.get_json(self._source_blob(), remote=True)
-                if idx and idx.get("v") != self.INDEX_V:
+                if idx and idx.get("v") != self.SOURCE_INDEX_V:
                     idx = None
                 self._source_index = idx
         if idx is None:
@@ -829,14 +862,28 @@ class LeRobotSource(Source):
                 log.exception("source index: skipping %s", t)
                 continue
             info = meta["info"]
+            cams = list(info.get("cameras", []))
+            recs = [r for r in (self.episode_stat(t, n) for n in names) if r]
+            stats.extend(recs)
+            durs = sorted(r["duration_s"] for r in recs if r.get("duration_s") is not None)
+            status_counts: dict[str, int] = {}
+            for r in recs:
+                status_counts[str(r.get("status") or "unknown")] = \
+                    status_counts.get(str(r.get("status") or "unknown"), 0) + 1
+            # Deterministic preview: the first episode, the scene camera if there is
+            # one, else the first camera. Recorded here so cards need no compute.
+            preview = None
+            if names and cams:
+                cam = next((c for c in cams if "scene" in c), cams[0])
+                preview = {"episode": names[0], "camera": cam, "cameras": cams}
             tasks.append({"task": t, "ikey": meta.get("ikey"), "episodes": len(names),
                           "latest": names[-1] if names else None,
-                          "cameras": list(info.get("cameras", [])), "fps": info.get("fps")})
-            for name in names:
-                rec = self.episode_stat(t, name)
-                if rec:
-                    stats.append(rec)
-        idx = {"v": self.INDEX_V, "built_at": time.time(), "source": self.id,
+                          "cameras": cams, "fps": info.get("fps"),
+                          "preview": preview,
+                          "facts": {"episodes": len(names), "cameras": cams, "fps": info.get("fps"),
+                                    "duration_median_s": durs[len(durs) // 2] if durs else None,
+                                    "status_counts": status_counts}})
+        idx = {"v": self.SOURCE_INDEX_V, "built_at": time.time(), "source": self.id,
                "tasks": tasks, "stats": stats}
         cache.put_json(self._source_blob(), idx, remote=True)
         with self._index_lock:
@@ -846,7 +893,8 @@ class LeRobotSource(Source):
     def _build_overview(self) -> dict:
         idx = self.source_index()
         per_task = [{"task": t["task"], "episodes": t["episodes"], "latest": t["latest"],
-                     "collected_start": None, "collected_end": None}
+                     "collected_start": None, "collected_end": None,
+                     "preview": t.get("preview"), "facts": t.get("facts")}
                     for t in idx["tasks"]]
         per_task.sort(key=lambda t: t["episodes"], reverse=True)
         return {
@@ -1055,7 +1103,7 @@ class LeRobotSource(Source):
     def poster_path(self, task: str, episode: str, camera: str, eye: str) -> Path:
         """First-frame JPEG of a clip, derived-first like the clip itself."""
         name = self.video_cache_name(task, episode, camera, eye)
-        pname = name[:-4] + ".jpg" if name.endswith(".mp4") else name + ".jpg"
+        pname = poster_name(name)
 
         def _produce(dst: Path):
             clip = cache.path_for(name)
