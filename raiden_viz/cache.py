@@ -88,6 +88,14 @@ def _remote_head(cache_name: str) -> bool:
     return True
 
 
+def note_remote_many(cache_names) -> None:
+    """Bulk positive notes, for a manifest of artifacts known to be in the tier."""
+    exp = time.time() + REMOTE_READY_TTL_S
+    with _remote_ready_lock:
+        for n in cache_names:
+            _remote_ready[n] = exp
+
+
 def remote_ready(cache_name: str) -> bool:
     """True if the derived tier already holds this artifact (one HEAD, memoized).
     Nothing is downloaded: the browser can be sent straight to a presigned URL."""

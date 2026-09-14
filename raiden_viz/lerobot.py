@@ -302,3 +302,9 @@ def transcode(src: Path, dst: Path, from_ts: float = 0.0, to_ts=None, fps=None) 
     ]
     subprocess.run(cmd, check=True, capture_output=True)
     return {"from_ts": from_ts, "to_ts": to_ts}
+
+
+def poster(src: Path, dst: Path) -> None:
+    """First frame of a clip as a JPEG, shown in the tile before the video starts."""
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(src), "-frames:v", "1",
+                    "-q:v", "4", "-f", "image2", str(dst)], check=True)

@@ -25,6 +25,8 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+import logging
+
 from . import cache, calib_overlay, config, fk, lerobot, robot_data, s3, svo, yam
 
 # In-flight/finished background stat scans, keyed by a per-source scan id. Held in
@@ -751,6 +753,9 @@ class LeRobotSource(Source):
         super().__init__(spec)
         self.subdir = (spec.get("subdir") or "").strip("/")
         self._meta_cache: dict[str, dict] = {}
+        self._clips_cache: dict[str, dict] = {}      # task -> {"ep|cam": cache name} (warmed clips)
+        self._source_index: dict | None = None
+        self._index_lock = threading.Lock()
         self._meta_lock = threading.Lock()
 
     # LeRobot indexes episodes by integer; expose them as zero-padded names so the
@@ -765,7 +770,7 @@ class LeRobotSource(Source):
         root = f"{self.prefix}/{task}"
         return f"{root}/{self.subdir}" if self.subdir else root
 
-    def list_tasks(self) -> list[str]:
+    def _list_tasks_raw(self) -> list[str]:
         names = super().list_tasks()
         if not self.subdir:
             return names
@@ -774,8 +779,138 @@ class LeRobotSource(Source):
         return [t for t in names
                 if s3.try_head(f"{self._task_root(t)}/meta/info.json", bucket=self.bucket) is not None]
 
-    def _load_meta(self, task: str) -> dict:
+    def list_tasks(self) -> list[str]:
+        # From the source index (one S3 GET per container) rather than a listing
+        # plus one HEAD per folder on every call.
+        return [t["task"] for t in self.source_index()["tasks"]]
+
+    # ---- source index: everything the overview / stats / browse pages need ------
+
+    def _source_blob(self) -> str:
+        return f"lerobot_source_{self.id}_v{self.INDEX_V}.json"
+
+    def source_index(self) -> dict:
+        """{built_at, tasks: [{task, ikey, episodes, latest, cameras, fps}], stats: [...]}.
+        Memoized per container; read from the derived tier; built (once) and
+        published when absent. Refreshed in the background once older than
+        SOURCE_INDEX_TTL_S, so a dataset uploaded without an explicit rebuild still
+        appears — the stale index is served meanwhile."""
+        with self._index_lock:
+            idx = self._source_index
+            if idx is None:
+                idx = cache.get_json(self._source_blob(), remote=True)
+                if idx and idx.get("v") != self.INDEX_V:
+                    idx = None
+                self._source_index = idx
+        if idx is None:
+            return self.rebuild_source_index()
+        if time.time() - float(idx.get("built_at", 0)) > config.SOURCE_INDEX_TTL_S \
+                and not idx.get("_refreshing"):
+            idx["_refreshing"] = True
+            threading.Thread(target=self._safe_rebuild_index, daemon=True,
+                             name=f"index-{self.id}").start()
+        return idx
+
+    def _safe_rebuild_index(self):
+        try:
+            self.rebuild_source_index()
+        except Exception:
+            log.exception("source index rebuild failed for %s", self.id)
+
+    def rebuild_source_index(self) -> dict:
+        """List the datasets, load (or restore) each task's meta, and publish one
+        JSON with per-task facts plus every episode's stat record."""
+        tasks, stats = [], []
+        for t in self._list_tasks_raw():
+            try:
+                meta = self._meta(t)
+                names = self.list_episodes(t)
+            except Exception:
+                log.exception("source index: skipping %s", t)
+                continue
+            info = meta["info"]
+            tasks.append({"task": t, "ikey": meta.get("ikey"), "episodes": len(names),
+                          "latest": names[-1] if names else None,
+                          "cameras": list(info.get("cameras", [])), "fps": info.get("fps")})
+            for name in names:
+                rec = self.episode_stat(t, name)
+                if rec:
+                    stats.append(rec)
+        idx = {"v": self.INDEX_V, "built_at": time.time(), "source": self.id,
+               "tasks": tasks, "stats": stats}
+        cache.put_json(self._source_blob(), idx, remote=True)
+        with self._index_lock:
+            self._source_index = idx
+        return idx
+
+    def _build_overview(self) -> dict:
+        idx = self.source_index()
+        per_task = [{"task": t["task"], "episodes": t["episodes"], "latest": t["latest"],
+                     "collected_start": None, "collected_end": None}
+                    for t in idx["tasks"]]
+        per_task.sort(key=lambda t: t["episodes"], reverse=True)
+        return {
+            "source": self.id, "bucket": self.bucket, "prefix": self.prefix,
+            "num_tasks": len(per_task), "num_episodes": sum(t["episodes"] for t in per_task),
+            "stations": [], "tasks": per_task,
+        }
+
+    def stats(self, full: bool = False) -> dict:
+        # Every episode's record is in the source index already: no per-episode work,
+        # no sampling.
+        eps = list(self.source_index()["stats"])
+        total = len(eps)
+        if not full and total > self.STATS_MAX:          # keep the chart payload bounded
+            step = max(1, total // self.STATS_MAX)
+            eps = eps[::step]
+        return {"num_episodes": len(eps), "total_episodes": total, "scanned": len(eps),
+                "sampled": len(eps) < total, "episodes": eps}
+
+    # ---- warmed-clip manifest: (episode, camera) -> cache name, no HEADs ----------
+
+    def _clip_manifest(self, task: str) -> dict:
+        m = self._clips_cache.get(task)
+        if m is None:
+            ikey = self._meta(task).get("ikey")
+            m = (cache.get_json(self._clips_blob(ikey), remote=True) or {}).get("clips", {}) if ikey else {}
+            cache.note_remote_many(m.values())     # every listed clip IS in the tier
+            self._clips_cache[task] = m
+        return m
+
+    INDEX_V = 1
+
+    def _index_key(self, task: str) -> str:
+        """Content key of a task's meta: ONE listing of <root>/meta/ (4-5 objects),
+        hashed with their etags — so re-uploaded meta (e.g. a new column) invalidates
+        every artifact derived from it, and nothing has to be parsed to know that."""
         root = self._task_root(task)
+        objs = sorted((o.key, o.etag) for o in s3.list_keys(f"{root}/meta/", bucket=self.bucket))
+        if not objs:
+            raise FileNotFoundError(f"no LeRobot meta under {root}")
+        return hashlib.sha1(("|".join(f"{k}:{e}" for k, e in objs)).encode()).hexdigest()[:16]
+
+    def _meta_blob(self, ikey: str) -> str:
+        return f"lerobot_meta_{ikey}_v{self.INDEX_V}.json"
+
+    def _detail_blob(self, ikey: str, idx: int) -> str:
+        return f"lerobot_detail_{ikey}_{idx}_v{self.INDEX_V}.json"
+
+    def _clips_blob(self, ikey: str) -> str:
+        return f"lerobot_clips_{ikey}_v{self.INDEX_V}.json"
+
+    def _load_meta(self, task: str) -> dict:
+        """Task meta = {info, tasks, episodes, ikey}. Read as ONE JSON blob from the
+        derived tier when it exists (bytes from S3, no parquet parsing); otherwise
+        parsed from meta/*.parquet once and published for every later container."""
+        root = self._task_root(task)
+        ikey = self._index_key(task)
+        blob = cache.get_json(self._meta_blob(ikey), remote=True)
+        if blob and blob.get("v") == self.INDEX_V:
+            return {"info": blob["info"],
+                    "tasks": {int(k) if str(k).lstrip("-").isdigit() else k: v
+                              for k, v in blob["tasks"].items()},
+                    "episodes": {int(k): v for k, v in blob["episodes"].items()},
+                    "ikey": ikey}
         info = lerobot.parse_info(s3.get_json(f"{root}/meta/info.json", bucket=self.bucket))
         tasks_tbl = lerobot.read_table(s3.get_bytes(f"{root}/meta/tasks.parquet", bucket=self.bucket))
         task_map = lerobot.parse_tasks(tasks_tbl)
@@ -785,7 +920,12 @@ class LeRobotSource(Source):
                           key=lambda o: o.key):
             tbl = lerobot.read_table(s3.get_bytes(obj.key, bucket=self.bucket))
             episodes.update(lerobot.parse_episodes(tbl, info["video_keys"]))
-        return {"info": info, "tasks": task_map, "episodes": episodes}
+        cache.put_json(self._meta_blob(ikey),
+                       {"v": self.INDEX_V, "info": info,
+                        "tasks": {str(k): v for k, v in task_map.items()},
+                        "episodes": {str(k): v for k, v in episodes.items()}},
+                       remote=True)
+        return {"info": info, "tasks": task_map, "episodes": episodes, "ikey": ikey}
 
     def _meta(self, task: str) -> dict:
         # Lock across the load so 32 concurrent scan workers don't all fetch the
@@ -816,9 +956,22 @@ class LeRobotSource(Source):
         return lerobot.filter_episode(tbl, row["episode_index"])
 
     def episode_detail(self, task: str, episode: str) -> dict:
+        """Per-episode detail (robot traces, annotations, instruction) as ONE small
+        JSON from the derived tier; computed from the packed data parquet only the
+        first time (or ahead of time by warm_task) and published."""
         meta, row = self._row(task, episode)
-        info = meta["info"]
+        blob = self._detail_blob(meta.get("ikey", "nokey"), row["episode_index"])
+        hit = cache.get_json(blob, remote=True) if meta.get("ikey") else None
+        if hit is not None:
+            return hit
         tbl = self._data_table(task, meta, row)
+        detail = self._build_detail(task, episode, meta, row, tbl)
+        if meta.get("ikey"):
+            cache.put_json(blob, detail, remote=True)
+        return detail
+
+    def _build_detail(self, task: str, episode: str, meta: dict, row: dict, tbl) -> dict:
+        info = meta["info"]
         robot = lerobot.build_robot(tbl, info)
         annotations = lerobot.subtasks_to_annotations(tbl)
         instruction = lerobot.instruction_for(tbl, meta["tasks"], row)
@@ -855,6 +1008,9 @@ class LeRobotSource(Source):
         return s3key, obj, from_ts, to_ts, f"lerobot_{obj.etag}_{camera}_{win}.mp4"
 
     def video_cache_name(self, task: str, episode: str, camera: str, eye: str) -> str | None:
+        name = self._clip_manifest(task).get(f"{episode}|{camera}")
+        if name:
+            return name                      # warmed: zero network
         return self._clip_source(task, episode, camera)[4]
 
     def video_path(self, task: str, episode: str, camera: str, eye: str) -> Path:
@@ -895,6 +1051,100 @@ class LeRobotSource(Source):
             return False  # unreadable/odd container: let the transcode decide (and fail loudly)
         return lerobot.browser_playable(probe) and lerobot.covers_whole_file(
             from_ts, to_ts, probe.get("duration"), fps)
+
+    def poster_path(self, task: str, episode: str, camera: str, eye: str) -> Path:
+        """First-frame JPEG of a clip, derived-first like the clip itself."""
+        name = self.video_cache_name(task, episode, camera, eye)
+        pname = name[:-4] + ".jpg" if name.endswith(".mp4") else name + ".jpg"
+
+        def _produce(dst: Path):
+            clip = cache.path_for(name)
+            if not (clip.exists() and clip.stat().st_size > 0) and not cache.exists(name):
+                clip = self.video_path(task, episode, camera, eye)   # decode, then fetch
+                if not clip.exists():
+                    cache.exists(name)
+            lerobot.poster(clip, dst)
+
+        return cache.get_or_create(pname, _produce, fetch=False)
+
+    def warm_task(self, task: str, workers: int = 3, progress=None, posters: bool = True,
+                  details: bool = True) -> dict:
+        """Leave EVERYTHING the viewer needs for a task in the derived tier: the meta
+        index, one detail JSON per episode, every clip, its poster, and the clip
+        manifest; then refresh the source index. Idempotent and resumable — every
+        artifact is checked before it is produced. Returns counts + failures."""
+        meta = self._meta(task)
+        info, ikey = meta["info"], meta.get("ikey")
+        eps = sorted(meta["episodes"])
+        cams = list(info["cameras"])
+        failed: list[tuple[str, str, str]] = []
+        n_total = (len(eps) if details else 0) + len(eps) * len(cams)
+        done = [0]
+
+        def _tick(res=None):
+            done[0] += 1
+            if res is not None:
+                failed.append(res)
+            if progress:
+                progress(done[0], n_total, res)
+
+        # 1) details, grouped by packed data file so each chunk is downloaded once
+        if details and ikey:
+            by_file: dict[tuple, list[int]] = {}
+            for i in eps:
+                if cache.remote_ready(self._detail_blob(ikey, i)):
+                    _tick()
+                    continue
+                row = meta["episodes"][i]
+                by_file.setdefault((row["data_chunk"], row["data_file"]), []).append(i)
+            for (chunk, file), idxs in by_file.items():
+                try:
+                    key = info["data_path"].format(chunk_index=chunk, file_index=file)
+                    tbl = lerobot.read_table(s3.get_bytes(f"{self._task_root(task)}/{key}", bucket=self.bucket))
+                except Exception as ex:  # noqa: BLE001
+                    for i in idxs:
+                        _tick((self._ep_name(i), "detail", f"{type(ex).__name__}: {ex}"))
+                    continue
+                for i in idxs:
+                    ep = self._ep_name(i)
+                    try:
+                        sub = lerobot.filter_episode(tbl, i)
+                        cache.put_json(self._detail_blob(ikey, i),
+                                       self._build_detail(task, ep, meta, meta["episodes"][i], sub),
+                                       remote=True)
+                        _tick()
+                    except Exception as ex:  # noqa: BLE001
+                        _tick((ep, "detail", f"{type(ex).__name__}: {ex}"))
+
+        # 2) clips (+ posters), collecting cache names for the manifest
+        manifest = dict(self._clip_manifest(task)) if ikey else {}
+
+        def _one(job):
+            ep, cam = job
+            try:
+                path = self.video_path(task, ep, cam, "left")
+                if posters:
+                    self.poster_path(task, ep, cam, "left")
+                return (ep, cam, path.name, None)
+            except Exception as ex:  # noqa: BLE001
+                return (ep, cam, None, f"{type(ex).__name__}: {ex}")
+
+        with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
+            for ep, cam, name, err in pool.map(_one, [(self._ep_name(i), c) for i in eps for c in cams]):
+                if err is None:
+                    manifest[f"{ep}|{cam}"] = name
+                    _tick()
+                else:
+                    _tick((ep, cam, err))
+
+        # 3) manifest + source index
+        if ikey:
+            cache.put_json(self._clips_blob(ikey), {"v": self.INDEX_V, "clips": manifest}, remote=True)
+            cache.note_remote_many(manifest.values())
+            self._clips_cache[task] = manifest
+        self.rebuild_source_index()
+        return {"task": task, "episodes": len(eps), "clips": len(eps) * len(cams),
+                "ok": n_total - len(failed), "failed": failed}
 
     def warm(self, task: str, cameras=None, episodes=None, workers: int = 4,
              progress=None) -> dict:
@@ -1008,6 +1258,9 @@ class LeRobotSingleRootSource(LeRobotSource):
     def list_tasks(self) -> list[str]:
         return sorted(self._meta()["by_task"])
 
+    def _list_tasks_raw(self) -> list[str]:
+        return self.list_tasks()
+
     def list_episodes(self, task: str) -> list[str]:
         idxs = self._meta()["by_task"].get(task, [])
         # oldest-first (ascending episode_index) to match the other sources' ordering
@@ -1025,6 +1278,8 @@ class LeRobotSingleRootSource(LeRobotSource):
             raise FileNotFoundError(f"no such episode: {episode}")
         return meta, row
 
+
+log = logging.getLogger("raiden_viz")
 
 _KINDS = {"raiden": RaidenSource, "yam": YamMcapSource, "lerobot": LeRobotSource,
           "lerobot_single": LeRobotSingleRootSource}

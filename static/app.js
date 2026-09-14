@@ -274,6 +274,13 @@ function tileOverlay(initial = "Loading") {
   };
 }
 
+// LeRobot sources publish a first-frame JPEG per clip; showing it as the poster
+// fills the tile instantly while the video itself loads. Other sources: none.
+function posterUrl(base, query) {
+  const k = sourceKind();
+  return (k === "lerobot" || k === "lerobot_single") ? `${base}/video/poster?${query}` : null;
+}
+
 // Keep a tile's box at the clip's real aspect once known (sim cams are square,
 // station cams 16:9); until then the CSS default applies.
 function fitTileAspect(tile, video) {
@@ -1024,6 +1031,9 @@ function clearPreview() {
 // /episodes (fetched once per task per overview visit).
 async function previewEpisodeList(task, wantAll) {
   if (state.previewEpisodes[task]) return state.previewEpisodes[task];
+  if (state.task === task && state.episodes && state.episodes.length) {
+    return (state.previewEpisodes[task] = state.episodes);   // browse list already loaded
+  }
   let eps = state.previewRecords.filter((e) => e.task === task).map((e) => e.episode);
   if (wantAll || eps.length < 2) {
     eps = (await api(`${apiBase()}/tasks/${encodeURIComponent(task)}/episodes`)).episodes || [];
@@ -1116,6 +1126,8 @@ function previewRow(rec, cameras, stale) {
     tile.appendChild(ov.el);
     tiles.appendChild(tile);
     const q = `camera=${encodeURIComponent(cam)}&eye=left`;
+    const poster = posterUrl(base, q);
+    if (poster) video.poster = poster;
     waitForClip(`${base}/video/status?${q}`, { stale, onDecoding: () => ov.preparing() }).then((res) => {
       if (!res) return;
       if (!res.ok) { ov.fail(res.msg); return; }
@@ -1804,6 +1816,8 @@ function makeVideoTile(c) {
   const clipQuery = `camera=${encodeURIComponent(c.name)}&eye=${state.eye}`;
   const url = `${clipBase}/video?${clipQuery}`;
   const statusUrl = `${clipBase}/video/status?${clipQuery}`;
+  const poster = posterUrl(clipBase, clipQuery);
+  if (poster) video.poster = poster;
   // Which episode this tile was mounted for, so a poll that outlives a navigation
   // stops instead of loading a clip into a torn-down tile.
   const mountedTask = state.task, mountedEpisode = state.episode;

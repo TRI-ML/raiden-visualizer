@@ -172,3 +172,9 @@ SCAN_WORKERS = int(os.environ.get("RAIDEN_SCAN_WORKERS", "32"))
 SCAN_WARMUP_WORKERS = int(os.environ.get("RAIDEN_SCAN_WARMUP_WORKERS", "4"))
 SCAN_WARMUP_PAUSE_S = float(os.environ.get("RAIDEN_SCAN_WARMUP_PAUSE_S", "0.05"))
 SCAN_PERSIST_TTL_S = float(os.environ.get("RAIDEN_SCAN_PERSIST_TTL_S", str(3 * 86400)))
+
+# LeRobot sources answer browse/overview/stats from S3-resident index artifacts in the
+# derived tier (built once, read per container). The per-source index self-refreshes
+# in the background once older than this, so a dataset uploaded without a rebuild
+# still shows up; warm/rebuild endpoints refresh it immediately.
+SOURCE_INDEX_TTL_S = float(os.environ.get("RAIDEN_SOURCE_INDEX_TTL_S", str(6 * 3600)))
