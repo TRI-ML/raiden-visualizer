@@ -6,6 +6,7 @@ routes are source-scoped: /api/sources/{sid}/...
 
 import logging
 import threading
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -60,14 +61,13 @@ def _configure_logging() -> None:
 
 
 def _warm_scans() -> None:
-    """Start every source's full per-episode scan at boot.
+    """Make every source's full per-episode scan available after boot.
 
-    The scan backs the episode filter. Nothing started it before this: a user
-    clicked #filter-scan-btn and then watched it finish, which on the largest source
-    is ~51 minutes. Deploying at a quiet hour only helps if the scan runs then too.
-
-    scan_start is idempotent and returns immediately, spawning its own workers, so
-    this cannot delay startup or the health check.
+    The scan backs the episode filter. A finished scan is persisted in the derived
+    tier, so on most boots this is a handful of small downloads. When a source
+    really has to be (re)scanned, it runs ONE SOURCE AT A TIME on a few threads with
+    a pause per item: eight sources scanning at 32 threads each on a 2-vCPU task
+    starved clip requests for minutes after every deploy (30-65 s per clip).
 
     Each source is guarded SEPARATELY: one source that cannot be listed must not
     stop the others, and none of it may be fatal to startup.
@@ -77,17 +77,26 @@ def _warm_scans() -> None:
     except Exception:
         logger.exception("scan warmup failed to resolve sources")
         return
-    started = 0
+    started = restored = 0
     for spec in config.SOURCES:
         src = available.get(spec["id"])
         if src is None:
             continue
         try:
-            src.scan_start()
+            snap = src.scan_start(workers=config.SCAN_WARMUP_WORKERS,
+                                  pause=config.SCAN_WARMUP_PAUSE_S)
+            if snap["done"]:
+                restored += 1
+                continue
             started += 1
+            while True:                       # sequential: next source after this one
+                time.sleep(5)
+                snap = src.scan_snapshot()
+                if snap is None or snap["done"]:
+                    break
         except Exception:
             logger.exception("scan warmup failed for %s", spec["id"])
-    logger.info("scan warmup started for %d source(s)", started)
+    logger.info("scan warmup: %d source(s) restored, %d scanned", restored, started)
 
 
 @asynccontextmanager
@@ -405,12 +414,18 @@ def episode_video(sid: str, task: str, episode: str, camera: str, eye: str = Que
     is tens to hundreds of MB, and putting that on the app's critical path caps
     concurrency at whatever the single task can push.
     """
-    try:
-        mp4 = _src(sid).video_path(task, episode, camera, eye)
-    except FileNotFoundError as e:
-        raise HTTPException(404, str(e))
-    except ValueError as e:
-        raise HTTPException(422, str(e))
+    # The status poll that preceded this request already resolved the clip; reuse
+    # its path rather than re-deriving it (meta + source HEAD) a second time.
+    st = _CLIPS.state(clips.job_key(sid, task, episode, camera, eye))
+    if st and st["ready"] and st.get("path"):
+        mp4 = Path(st["path"])
+    else:
+        try:
+            mp4 = _src(sid).video_path(task, episode, camera, eye)
+        except FileNotFoundError as e:
+            raise HTTPException(404, str(e))
+        except ValueError as e:
+            raise HTTPException(422, str(e))
     # video_path() has already published the clip via cache.get_or_create, so a URL
     # here is the common case once the tier is on. Key off the file NAME: that is the
     # cache key, and it does not match camera/eye for every adapter (the lerobot one
@@ -418,7 +433,24 @@ def episode_video(sid: str, task: str, episode: str, camera: str, eye: str = Que
     url = cache.remote_url(mp4.name)
     if url:
         return RedirectResponse(url, status_code=302)
+    if not mp4.exists() and not cache.exists(mp4.name):
+        raise HTTPException(404, "clip is no longer available")
     return FileResponse(mp4, media_type="video/mp4", filename=f"{camera}_{eye}.mp4")
+
+
+def _resolved_clip(src, task, episode, camera, eye):
+    """Local path of a clip that is already in a cache tier, else None (unknown
+    name, missing camera, or a genuine miss — the async job then reports those)."""
+    try:
+        name = src.video_cache_name(task, episode, camera, eye)
+    except Exception:
+        return None
+    if not name:
+        return None
+    local = cache.path_for(name)
+    if (local.exists() and local.stat().st_size > 0) or cache.remote_ready(name):
+        return local
+    return None
 
 
 @app.get("/api/sources/{sid}/tasks/{task}/episodes/{episode}/video/status")
@@ -438,7 +470,15 @@ def episode_video_status(sid: str, task: str, episode: str, camera: str,
     """
     src = _src(sid)
     key = clips.job_key(sid, task, episode, camera, eye)
-    state = _CLIPS.ensure(key, lambda: src.video_path(task, episode, camera, eye))
+    state = _CLIPS.state(key)
+    if state is None:
+        # Derived-first: if the adapter can name the clip cheaply and a cache tier
+        # already holds it, answer ready NOW — no thread, no download, one poll.
+        ready_path = _resolved_clip(src, task, episode, camera, eye)
+        if ready_path is not None:
+            state = _CLIPS.mark_ready(key, ready_path)
+    if state is None:
+        state = _CLIPS.ensure(key, lambda: src.video_path(task, episode, camera, eye))
     if state["error"]:
         raise HTTPException(_CLIP_ERROR_STATUS.get(state["error_type"], 500),
                             state["error"])

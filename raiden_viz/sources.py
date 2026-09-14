@@ -125,6 +125,14 @@ class Source:
     def episode_detail(self, task: str, episode: str) -> dict:
         raise NotImplementedError
 
+    def video_cache_name(self, task: str, episode: str, camera: str, eye: str) -> str | None:
+        """The cache name video_path() would produce for this clip, computed WITHOUT
+        producing it (cheap: metadata + at most one HEAD), or None if the adapter
+        cannot know it up front. Lets /video/status answer "ready" on the first poll
+        for a clip the derived tier already holds. Raises like video_path for a
+        missing camera."""
+        return None
+
     def episode_facts(self, task: str) -> dict:
         """Cheap per-episode facts for the browse list: {episode: {timestamp, status}}.
 
@@ -310,30 +318,65 @@ class Source:
     def _scan_id(self) -> str:
         return hashlib.sha1(f"{self.id}:{self.bucket}:{self.prefix}".encode()).hexdigest()[:12]
 
-    def scan_start(self, force: bool = False) -> dict:
+    def _scan_blob(self) -> str:
+        return f"scan_{self._scan_id()}.json"
+
+    def scan_start(self, force: bool = False, workers: int | None = None,
+                   pause: float = 0.0) -> dict:
         """Begin (or resume) a background full scan of every episode's stats.
         Returns an immediate snapshot; poll scan_snapshot() for progress. Idempotent:
         a scan already running/finished for this source is reused — unless ``force``,
         which discards a FINISHED scan and starts over (a scan that ran before a
-        dataset was uploaded is complete and wrong; a running one is left alone)."""
+        dataset was uploaded is complete and wrong; a running one is left alone).
+
+        A finished scan is persisted to the derived tier and, while younger than
+        SCAN_PERSIST_TTL_S, restored instead of rescanned: CACHE_DIR dies with the
+        container, so before this every deploy paid the full scan again. ``workers``
+        / ``pause`` throttle a real rescan (the boot warmup uses a few threads with a
+        pause so clip requests are not starved on a 2-vCPU task)."""
         sid = self._scan_id()
         with _SCANS_GUARD:
             st = _SCANS.get(sid)
             if st and (st["running"] or (st["done"] and not force)):
                 return self._snapshot(st)
+            if not force:
+                saved = self._restore_scan()
+                if saved is not None:
+                    _SCANS[sid] = saved
+                    return self._snapshot(saved)
             pairs, total = self._stat_pairs(full=True)
             st = {"running": True, "done": False, "total": total,
                   "episodes": [], "error": None, "lock": threading.Lock()}
             _SCANS[sid] = st
-        t = threading.Thread(target=self._run_scan, args=(sid, pairs, st), daemon=True)
+        t = threading.Thread(target=self._run_scan,
+                             args=(sid, pairs, st, workers or config.SCAN_WORKERS, pause),
+                             daemon=True)
         t.start()
         return self._snapshot(st)
 
-    def _run_scan(self, sid, pairs, st):
-        err = None
+    def _restore_scan(self) -> dict | None:
         try:
-            with ThreadPoolExecutor(max_workers=32) as pool:
-                for fut in [pool.submit(self._safe_stat, t, e) for t, e in pairs]:
+            saved = cache.get_json(self._scan_blob(), remote=True)
+        except Exception:
+            return None
+        if not saved or time.time() - float(saved.get("saved_at", 0)) > config.SCAN_PERSIST_TTL_S:
+            return None
+        return {"running": False, "done": True, "total": saved.get("total", 0),
+                "episodes": list(saved.get("episodes", [])), "error": None,
+                "lock": threading.Lock()}
+
+    def _run_scan(self, sid, pairs, st, workers=32, pause=0.0):
+        err = None
+
+        def _one(t, e):
+            rec = self._safe_stat(t, e)
+            if pause:
+                time.sleep(pause)      # yield the CPU to requests during a boot rescan
+            return rec
+
+        try:
+            with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
+                for fut in [pool.submit(_one, t, e) for t, e in pairs]:
                     rec = fut.result()
                     if rec:
                         with st["lock"]:
@@ -348,6 +391,11 @@ class Source:
                 st["error"] = err
                 st["running"] = False
                 st["done"] = True
+                eps = list(st["episodes"])
+            if err is None:
+                cache.put_json(self._scan_blob(),
+                               {"saved_at": time.time(), "total": st["total"], "episodes": eps},
+                               remote=True)
 
     def scan_snapshot(self) -> dict | None:
         """Current progress of an in-flight/finished scan, or None if none started."""
@@ -788,7 +836,8 @@ class LeRobotSource(Source):
             "annotations": annotations,
         }
 
-    def video_path(self, task: str, episode: str, camera: str, eye: str) -> Path:
+    def _clip_source(self, task: str, episode: str, camera: str):
+        """(source key, S3Object, from_ts, to_ts, cache name) for one clip; one HEAD."""
         meta, row = self._row(task, episode)
         info = meta["info"]
         vid = row.get("videos", {}).get(camera)
@@ -803,6 +852,15 @@ class LeRobotSource(Source):
             raise FileNotFoundError(f"video not found: {s3key}")
         from_ts, to_ts = vid["from_ts"], vid["to_ts"]
         win = f"{from_ts:.3f}-{'end' if to_ts is None else f'{to_ts:.3f}'}"
+        return s3key, obj, from_ts, to_ts, f"lerobot_{obj.etag}_{camera}_{win}.mp4"
+
+    def video_cache_name(self, task: str, episode: str, camera: str, eye: str) -> str | None:
+        return self._clip_source(task, episode, camera)[4]
+
+    def video_path(self, task: str, episode: str, camera: str, eye: str) -> Path:
+        meta, _row = self._row(task, episode)
+        info = meta["info"]
+        s3key, obj, from_ts, to_ts, cache_name = self._clip_source(task, episode, camera)
 
         def _produce(dst: Path):
             # Pull the source mp4 to a temp file and drop it afterwards — only the
@@ -824,7 +882,9 @@ class LeRobotSource(Source):
             finally:
                 tmp.unlink(missing_ok=True)
 
-        return cache.get_or_create(f"lerobot_{obj.etag}_{camera}_{win}.mp4", _produce)
+        # Derived-first: a clip the tier already holds is never pulled through the
+        # container — /video presigns it and the browser fetches it from the bucket.
+        return cache.get_or_create(cache_name, _produce, fetch=False)
 
     @staticmethod
     def _can_stream_copy(src: Path, from_ts: float, to_ts, fps) -> bool:

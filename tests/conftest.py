@@ -62,3 +62,21 @@ def cache_dir(tmp_path, monkeypatch):
     d.mkdir()
     monkeypatch.setattr(config, "CACHE_DIR", d)
     return d
+
+
+@pytest.fixture(autouse=True)
+def _fresh_remote_ready():
+    """The positive derived-HEAD cache is process-global; no test may inherit it."""
+    from raiden_viz import cache
+    cache._remote_ready.clear()
+    yield
+    cache._remote_ready.clear()
+
+
+@pytest.fixture(autouse=True)
+def _isolated_cache_dir(tmp_path, monkeypatch):
+    """No test may read or write the real CACHE_DIR (a persisted scan blob written by
+    one test run was restored by the next and made an unrelated test fail)."""
+    d = tmp_path / "_cache"
+    d.mkdir(exist_ok=True)
+    monkeypatch.setattr(config, "CACHE_DIR", d)

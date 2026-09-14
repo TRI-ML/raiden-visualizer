@@ -146,20 +146,27 @@ select:focus { border-color: var(--accent); }
 .ov-stat .lbl.wrap { text-transform: none; letter-spacing: 0; font-family: 'JetBrains Mono', monospace; color: var(--text-dim); }
 /* Overview analytics charts */
 .ov-charts { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-bottom: 18px; }
-/* Overview preview: two episodes as small muted loops, one tile per camera. */
+/* Overview preview: two episodes as muted loops, one tile per camera. */
 .ov-preview-card { margin-bottom: 18px; }
-.ov-preview { display: flex; flex-direction: column; gap: 10px; }
-.pv-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.pv-link { font-size: 12px; color: var(--accent); text-decoration: none; min-width: 140px; }
-.pv-select { font-size: 12px; padding: 2px 6px; max-width: 320px; margin-left: 10px; margin-right: auto; }
-.pv-select.hidden { display: none; }
+.ov-preview { display: flex; flex-direction: column; gap: 14px; }
+.pv-row { display: flex; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+.pv-link { font-size: 12px; color: var(--accent); text-decoration: none; min-width: 120px; padding-top: 4px; }
 .pv-link:hover { text-decoration: underline; }
-.pv-tile { position: relative; width: 160px; height: 100px; background: #000; border-radius: 6px; overflow: hidden; flex: none; }
+.pv-tiles { display: flex; gap: 10px; flex-wrap: wrap; }
+.pv-tile {
+  position: relative; width: 300px; aspect-ratio: 16 / 9; background: #000;
+  border-radius: 8px; overflow: hidden; flex: none;
+}
 .pv-tile video { width: 100%; height: 100%; display: block; object-fit: contain; background: #000; }
-.pv-tile .cam-label { left: 4px; bottom: 4px; font-size: 10px; padding: 1px 5px; }
-.pv-tile .cam-overlay { padding: 6px; gap: 4px; font-size: 11px; }
-.pv-tile .cam-overlay .cam-msg { max-width: 150px; }
-.pv-tile .cam-overlay .spinner { width: 16px; height: 16px; }
+.pv-select { font-size: 12px; padding: 2px 6px; max-width: 320px; margin-left: 10px; }
+.pv-select.hidden, .pv-btn.hidden { display: none; }
+.pv-btn {
+  font-size: 12px; padding: 3px 10px; margin-left: 8px; margin-right: auto;
+  border: 1px solid var(--border); border-radius: 6px; background: transparent;
+  color: var(--text-dim); cursor: pointer;
+}
+.pv-btn:hover { color: var(--text); border-color: var(--accent); }
+@media (max-width: 900px) { .pv-tile { width: min(300px, 100%); } }
 .chart-body { padding: 14px 16px 16px; }
 .chart-wrap { position: relative; width: 100%; height: 220px; }
 .chart-wrap canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
@@ -311,10 +318,12 @@ select:focus { border-color: var(--accent); }
 }
 .cam-overlay.err .cam-icon::before { transform: rotate(45deg); }
 .cam-overlay.err .cam-icon::after  { transform: rotate(-45deg); }
-.cam-overlay .cam-msg { max-width: 220px; line-height: 1.4; }
+.cam-overlay .cam-msg { max-width: 220px; line-height: 1.4; font-size: 12px; letter-spacing: 0.01em; }
+.cam-overlay.err .cam-msg { color: var(--bad); }
+.cam-overlay .cam-sub:empty { display: none; }
 .cam-overlay .cam-sub { font-size: 10.5px; color: var(--text-faint); }
 .spinner {
-  width: 26px; height: 26px; border: 3px solid var(--border);
+  width: 22px; height: 22px; border: 2px solid var(--border);
   border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }

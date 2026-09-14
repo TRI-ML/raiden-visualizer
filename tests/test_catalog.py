@@ -559,11 +559,11 @@ class ScannableSource:
         self.scans = 0
         self.fails = fails
 
-    def scan_start(self):
+    def scan_start(self, **kw):
         if self.fails:
             raise RuntimeError("listing blew up")
         self.scans += 1
-        return {"running": True}
+        return {"running": False, "done": True}   # restored from the derived tier
 
 
 def test_scan_warmup_starts_every_available_source(monkeypatch):

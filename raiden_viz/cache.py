@@ -57,16 +57,41 @@ def _remote_key(cache_name: str) -> str:
     return f"{config.DERIVED_PREFIX}/{cache_name}" if config.DERIVED_PREFIX else cache_name
 
 
+# Positive HEAD cache: a derived artifact, once seen, stays (nothing deletes from the
+# tier), so re-HEADing it on every status poll and again on /video is pure latency.
+REMOTE_READY_TTL_S = 900.0
+_remote_ready: dict[str, float] = {}
+_remote_ready_lock = threading.Lock()
+
+
+def _note_remote(cache_name: str) -> None:
+    with _remote_ready_lock:
+        _remote_ready[cache_name] = time.time() + REMOTE_READY_TTL_S
+        if len(_remote_ready) > 50_000:
+            _remote_ready.clear()
+
+
 def _remote_head(cache_name: str) -> bool:
     if not remote_enabled():
         return False
+    with _remote_ready_lock:
+        exp = _remote_ready.get(cache_name)
+    if exp is not None and exp > time.time():
+        return True
     try:
         _derived_client().head_object(
             Bucket=config.DERIVED_BUCKET, Key=_remote_key(cache_name)
         )
-        return True
     except Exception:
         return False
+    _note_remote(cache_name)
+    return True
+
+
+def remote_ready(cache_name: str) -> bool:
+    """True if the derived tier already holds this artifact (one HEAD, memoized).
+    Nothing is downloaded: the browser can be sent straight to a presigned URL."""
+    return _remote_head(cache_name)
 
 
 def fetch_remote(cache_name: str, dest: Path) -> bool:
@@ -100,7 +125,8 @@ def push_remote(cache_name: str, src: Path) -> None:
             Filename=str(src), Bucket=config.DERIVED_BUCKET, Key=_remote_key(cache_name)
         )
     except Exception:
-        pass
+        return
+    _note_remote(cache_name)
 
 
 def exists(cache_name: str) -> bool:
@@ -133,7 +159,7 @@ def remote_url(cache_name: str) -> str | None:
     )
 
 
-def get_or_create(cache_name: str, produce, remote: bool = True) -> Path:
+def get_or_create(cache_name: str, produce, remote: bool = True, fetch: bool = True) -> Path:
     """Return cached file at ``cache_name``, invoking ``produce(path)`` to
     build it on a miss. ``produce`` must write the file at the given path.
 
@@ -145,6 +171,13 @@ def get_or_create(cache_name: str, produce, remote: bool = True) -> Path:
     written for it. Use it for anything that is not expensive to PRODUCE -- notably
     a downloaded source object, which is already durable in its own bucket, so
     publishing it duplicates source data to buy back only a re-download.
+
+    ``fetch=False`` (derived-first): when the derived tier already holds the
+    artifact, return its local path WITHOUT downloading it — the path may not exist
+    on disk. Only for artifacts the app never opens itself, i.e. clips that /video
+    hands to the browser as a presigned URL: pulling a pre-rendered clip through
+    the container just to redirect the browser to the bucket was the whole cost of
+    a "warmed" first load.
     """
     dest = path_for(cache_name)
     if dest.exists() and dest.stat().st_size > 0:
@@ -155,6 +188,8 @@ def get_or_create(cache_name: str, produce, remote: bool = True) -> Path:
     with lock:
         # Re-check inside the lock (another thread may have produced it).
         if dest.exists() and dest.stat().st_size > 0:
+            return dest
+        if remote and not fetch and _remote_head(cache_name):
             return dest
         # Remote tier before decoding: a download is minutes cheaper than an ffmpeg
         # pass over an 880 MB MCAP, and survives redeploys.

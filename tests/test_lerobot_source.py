@@ -132,7 +132,7 @@ def wired(monkeypatch):
                         lambda s, d, *a: seen.__setitem__("transcode", seen["transcode"] + 1)
                         or Path(d).write_bytes(b"x"))
 
-    def get_or_create(cache_name, produce, remote=True):
+    def get_or_create(cache_name, produce, remote=True, **kw):
         seen["cache_name"] = cache_name
         out = sources.cache.path_for(cache_name)
         produce(out)
@@ -258,5 +258,5 @@ def test_overview_page_has_the_preview_block():
     html = (root / "index.html").read_text()
     js = (root / "app.js").read_text()
     assert 'id="preview-body"' in html and html.index('id="hist-canvas"') < html.index('id="preview-body"')
-    assert "async function waitForClip" in js and "renderPreview(stats.episodes" in js and "id=\"preview-task\"" in html
+    assert "async function waitForClip" in js and "renderPreview(stats.episodes" in js and "id=\"preview-task\"" in html and "id=\"preview-sample\"" in html
     assert '"Loading…"' in js
