@@ -200,6 +200,7 @@ function showOverview() {
 function showCatalog() {
   stopPlayback();
   state.source = null;
+  $("#task-head").classList.add("hidden");
   state.episode = null;
   location.hash = "";
   // Catalog mode: the sidebar's episode-browsing controls (dataset/task/episode
@@ -279,6 +280,70 @@ function tileOverlay(initial = "Loading") {
 function posterUrl(base, query) {
   const k = sourceKind();
   return (k === "lerobot" || k === "lerobot_single") ? `${base}/video/poster?${query}` : null;
+}
+
+// A dataset preview: lazy poster <img> (302 to S3) that swaps to the pre-rendered
+// muted looping clip while hovered (or after a tap on touch). Only the hovered box
+// ever plays, and the box has a fixed aspect so nothing shifts while it loads.
+// `pv` is the persisted {task, episode, camera, cameras} chosen at index-build time.
+function previewBox(sid, pv, { label = true } = {}) {
+  const box = el("div", "pv-box");
+  if (!pv || !pv.episode || !pv.camera) { box.classList.add("empty"); return box; }
+  const base = `/api/sources/${encodeURIComponent(sid)}/tasks/${encodeURIComponent(pv.task)}` +
+               `/episodes/${encodeURIComponent(pv.episode)}`;
+  const q = `camera=${encodeURIComponent(pv.camera)}&eye=left`;
+  const img = document.createElement("img");
+  img.loading = "lazy";
+  img.decoding = "async";
+  img.alt = "";
+  img.src = `${base}/video/poster?${q}`;
+  img.onload = () => img.classList.add("loaded");
+  img.onerror = () => { img.remove(); box.classList.add("empty"); };
+  box.appendChild(img);
+  if (label) box.appendChild(el("div", "pv-cam", prettyCam(pv.camera)));
+  let video = null;
+  const play = () => {
+    if (video || box.classList.contains("empty")) return;
+    video = document.createElement("video");
+    video.muted = true; video.loop = true; video.autoplay = true; video.playsInline = true;
+    video.poster = img.src;
+    video.src = `${base}/video?${q}`;
+    video.onerror = () => stop();
+    box.insertBefore(video, box.firstChild.nextSibling);
+    video.play().catch(() => {});
+  };
+  const stop = () => { if (!video) return; video.pause(); video.removeAttribute("src"); video.load(); video.remove(); video = null; };
+  box.addEventListener("pointerenter", (ev) => { if (ev.pointerType !== "touch") play(); });
+  box.addEventListener("pointerleave", stop);
+  // Touch: a tap toggles the clip instead of navigating; a second tap (or a tap
+  // elsewhere on the card) navigates as usual.
+  box.addEventListener("pointerdown", (ev) => { if (ev.pointerType === "touch" && !video) { box._tapped = true; } });
+  box.addEventListener("click", (ev) => {
+    if (box._tapped) { box._tapped = false; ev.stopPropagation(); play(); }
+  });
+  return box;
+}
+
+function previewStrip(sid, pv) {
+  const strip = el("div", "cat-strip");
+  (pv.cameras || []).slice(0, 4).forEach((cam) => {
+    strip.appendChild(previewBox(sid, { ...pv, camera: cam }, { label: false }));
+  });
+  return strip;
+}
+
+// One-line facts for a task from the persisted index (LeRobot sources).
+function factsLine(f) {
+  if (!f) return "";
+  const parts = [];
+  if (f.episodes != null) parts.push(`${f.episodes.toLocaleString()} episodes`);
+  if (f.cameras && f.cameras.length) parts.push(`${f.cameras.length} cams`);
+  if (f.fps) parts.push(`${f.fps} Hz`);
+  if (f.duration_median_s != null) parts.push(`median ${f.duration_median_s.toFixed(1)} s`);
+  const sc = f.status_counts || {};
+  const st = Object.keys(sc).filter((k) => k !== "unknown").map((k) => `${sc[k]} ${k}`);
+  if (st.length) parts.push(st.join(", "));
+  return parts.join(" · ");
 }
 
 // Keep a tile's box at the clip's real aspect once known (sim cams are square,
@@ -382,6 +447,12 @@ async function renderCatalog() {
         : failed ? failBadge(c.error) : annBadge(c.annotations)}</div>
       <div class="cat-cams subtle mono">${cams}</div>
       ${c.bucket ? `<div class="cat-prefix subtle mono">s3://${esc(c.bucket)}/${esc(c.prefix ?? "")}</div>` : ""}`;
+    // Preview chosen at build time (stored on the card): poster now, clip on hover.
+    const head = card.querySelector(".cat-card-head");
+    head.insertAdjacentElement("afterend", previewBox(c.id, c.preview));
+    if (c.preview && c.preview.cameras && c.preview.cameras.length > 1) {
+      card.querySelector(".pv-box").insertAdjacentElement("afterend", previewStrip(c.id, c.preview));
+    }
     card.addEventListener("click", () => selectSource(c.id));
     grid.appendChild(card);
   });
@@ -800,6 +871,7 @@ async function renderOverview() {
     }
 
     state.overviewTasks = ov.tasks;  // per-task totals, for extrapolating hours
+    if (state.task) renderTaskHead(state.task);   // deep link landed before the overview
     state.numTasks = ov.num_tasks;
     renderTaskList();
     loadTaskTeachers();   // reveals the robot-teacher filter when its scan is ready
@@ -852,6 +924,7 @@ function renderTaskList() {
   const maxEp = Math.max(1, ...all.map((t) => t.episodes));
   sorted.forEach((t) => {
     const row = el("div", "ov-task-row");
+    if (t.preview) row.appendChild(previewBox(state.source, { task: t.task, ...t.preview }, { label: false }));
     row.appendChild(el("div", "t-name", t.task));
     const bar = el("div", "t-bar");
     const fill = el("i");
@@ -1545,10 +1618,22 @@ function niceTicks(lo, hi, count) {
   return ticks;
 }
 
+function renderTaskHead(task) {
+  const head = $("#task-head");
+  head.innerHTML = "";
+  const t = (state.overviewTasks || []).find((x) => x.task === task);
+  if (!t || (!t.preview && !t.facts)) { head.classList.add("hidden"); return; }
+  head.classList.remove("hidden");
+  if (t.preview) head.appendChild(previewBox(state.source, { task, ...t.preview }));
+  const line = factsLine(t.facts);
+  if (line) head.appendChild(el("div", "facts", line));
+}
+
 async function selectTask(task, autoEpisode = null) {
   state.task = task;
   state.facts = {};
   $("#task-select").value = task;
+  renderTaskHead(task);
   try {
     const { episodes } = await api(`${apiBase()}/tasks/${encodeURIComponent(task)}/episodes`);
     state.episodes = episodes;

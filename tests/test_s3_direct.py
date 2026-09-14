@@ -73,7 +73,7 @@ def test_meta_parsed_once_is_published(remote, meta_listing, monkeypatch):
 
 
 def _indexed(src, remote, tasks=("plate",)):
-    idx = {"v": 1, "built_at": time.time(), "source": src.id,
+    idx = {"v": sources.LeRobotSource.SOURCE_INDEX_V, "built_at": time.time(), "source": src.id,
            "tasks": [{"task": t, "ikey": "k", "episodes": 1, "latest": "episode_000007",
                       "cameras": ["scene_camera"], "fps": 30} for t in tasks],
            "stats": [{"task": t, "episode": "episode_000007", "duration_s": 47.0, "status": "success"}
@@ -208,3 +208,84 @@ def test_warm_task_leaves_every_artifact(remote, monkeypatch):
     assert produced == ["clip", "poster"]
     res2 = src.warm_task("plate", workers=1)
     assert res2["failed"] == [] and produced == ["clip", "poster", "clip"]   # video_path is the cheap derived check
+
+
+# ---- dataset previews (poster + hover clip), chosen at index-build time -------------
+
+def test_source_index_records_a_preview_and_facts_per_task(remote, monkeypatch):
+    src = sources.LeRobotSource(SPEC)
+    info = {**INFO, "cameras": ["left_wrist_camera", "scene_camera"],
+            "video_keys": {"left_wrist_camera": "observation.images.left_wrist_camera",
+                           "scene_camera": "observation.images.scene_camera"}}
+    rows = {i: {**ROW, "episode_index": i, "status": "success" if i < 2 else "failure",
+                "videos": {"scene_camera": {"chunk": 0, "file": i, "from_ts": 0.0, "to_ts": 10.0 + i}}}
+            for i in range(3)}
+    src._meta_cache["plate"] = {"info": info, "tasks": {}, "episodes": rows, "ikey": "k"}
+    monkeypatch.setattr(src, "_list_tasks_raw", lambda: ["plate"])
+    idx = src.rebuild_source_index()
+    t = idx["tasks"][0]
+    assert t["preview"] == {"episode": "episode_000000", "camera": "scene_camera",
+                            "cameras": ["left_wrist_camera", "scene_camera"]}
+    assert t["facts"]["duration_median_s"] == 11.0
+    assert t["facts"]["status_counts"] == {"success": 2, "failure": 1}
+    ov = src.overview()
+    assert ov["tasks"][0]["preview"]["camera"] == "scene_camera" and ov["tasks"][0]["facts"]["episodes"] == 3
+
+
+def test_catalog_preview_comes_from_the_source_index_for_lerobot():
+    from raiden_viz import catalog
+
+    class Src:
+        spec = SPEC
+        def source_index(self):
+            return {"tasks": [{"task": "plate", "preview": {"episode": "episode_000000",
+                                                             "camera": "scene_camera", "cameras": ["scene_camera"]}}]}
+    assert catalog._pick_preview(Src(), ["scene_camera"]) == {
+        "task": "plate", "episode": "episode_000000", "camera": "scene_camera", "cameras": ["scene_camera"]}
+
+
+def test_catalog_preview_for_mcap_sources_only_uses_already_rendered_clips(remote, monkeypatch):
+    from raiden_viz import catalog
+
+    class Src:
+        spec = {"id": "yam", "kind": "yam"}
+        posters = []
+        def list_tasks(self): return ["t"]
+        def list_episodes(self, task): return ["e1"]
+        def video_cache_name(self, task, ep, cam, eye): return f"yam_etag_{cam}.mp4"
+        def poster_path(self, task, ep, cam, eye): self.posters.append(cam); return Path("/x.jpg")
+
+    src = Src()
+    assert catalog._pick_preview(src, ["cam0", "cam1"]) is None      # nothing rendered: placeholder
+    remote.objects["derived/yam_etag_cam1.mp4"] = b"mp4"
+    pv = catalog._pick_preview(src, ["cam0", "cam1"])
+    assert pv == {"task": "t", "episode": "e1", "camera": "cam1", "cameras": ["cam0", "cam1"]}
+    assert src.posters == ["cam1"]                                    # poster produced at build time
+
+
+def test_mcap_sources_name_their_clips_without_decoding(monkeypatch):
+    yam = sources.YamMcapSource({"id": "yam", "label": "Y", "kind": "yam", "bucket": "b", "prefix": "p"})
+    monkeypatch.setattr(sources.s3, "try_head", lambda key, bucket=None: sources.s3.S3Object(key, 10, "E7"))
+    assert yam.video_cache_name("t", "e", "cam0", "left") == "yam_E7_cam0.mp4"
+    raiden = sources.RaidenSource({"id": "r", "label": "R", "kind": "raiden", "bucket": "b", "prefix": "p"})
+    assert raiden.video_cache_name("t", "e", "cam0", "left") == "E7_cam0_left.mp4"
+
+
+def test_generic_poster_never_decodes(remote, monkeypatch):
+    yam = sources.YamMcapSource({"id": "yam", "label": "Y", "kind": "yam", "bucket": "b", "prefix": "p"})
+    monkeypatch.setattr(sources.s3, "try_head", lambda key, bucket=None: sources.s3.S3Object(key, 10, "E7"))
+    monkeypatch.setattr(yam, "_mine", lambda *a, **k: pytest.fail("decoded an MCAP for a poster"))
+    with pytest.raises(FileNotFoundError):
+        yam.poster_path("t", "e", "cam0", "left")
+    remote.objects["derived/yam_E7_cam0.mp4"] = b"mp4"
+    monkeypatch.setattr(lerobot, "poster", lambda s, d: Path(d).write_bytes(b"jpg"))
+    assert yam.poster_path("t", "e", "cam0", "left").name == "yam_E7_cam0.jpg"
+    assert "derived/yam_E7_cam0.jpg" in remote.objects
+
+
+def test_pages_have_the_preview_elements():
+    root = Path(__file__).resolve().parents[1] / "static"
+    html = (root / "index.html").read_text()
+    js = (root / "app.js").read_text()
+    assert 'id="task-head"' in html
+    assert "function previewBox" in js and "previewBox(c.id, c.preview)" in js and "renderTaskHead(" in js

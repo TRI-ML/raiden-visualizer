@@ -113,6 +113,44 @@ def _probe_annotations(src, cheap: dict) -> dict:
     return {"annotations": "yes" if found else "none", "probed": probed, "found": found}
 
 
+def _pick_preview(src, cams: list[str]) -> dict | None:
+    """The card's preview {task, episode, camera, cameras} — chosen ONCE at build time
+    and stored on the persisted card, so rendering needs no compute.
+
+    LeRobot: from the source index (first task's recorded preview; posters exist for
+    every warmed clip). Other sources: the first sampled episode's first camera, only
+    if that clip is ALREADY rendered in a cache tier — never trigger a decode for a
+    thumbnail. Its poster is produced here (one ffmpeg frame) so the card can 302 to it.
+    """
+    try:
+        if hasattr(src, "source_index"):
+            for t in src.source_index().get("tasks", []):
+                if t.get("preview"):
+                    return {"task": t["task"], **t["preview"]}
+            return None
+        if not cams:
+            return None
+        for task in src.list_tasks()[:_ANNOTATION_PROBE_N]:
+            eps = src.list_episodes(task)
+            if not eps:
+                continue
+            for cam in cams[:2]:
+                try:
+                    name = src.video_cache_name(task, eps[0], cam, "left")
+                except Exception:
+                    continue
+                local = cache.path_for(name) if name else None
+                if name and ((local.exists() and local.stat().st_size > 0) or cache.remote_ready(name)):
+                    try:
+                        src.poster_path(task, eps[0], cam, "left")
+                    except Exception:
+                        pass
+                    return {"task": task, "episode": eps[0], "camera": cam, "cameras": cams}
+    except Exception:
+        return None
+    return None
+
+
 def _sample_cameras(src) -> list[str]:
     """Camera names from one sampled episode (overview doesn't carry them)."""
     try:
@@ -215,6 +253,7 @@ class CatalogBuilder:
             deep = {
                 **cheap,
                 "cameras": cams,
+                "preview": _pick_preview(src, cams),
                 "annotations": ann["annotations"],
                 "annotation_probe": ann,
                 "scanned": st.get("scanned"),
