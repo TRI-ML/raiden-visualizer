@@ -523,6 +523,22 @@ def _resolved_clip(src, task, episode, camera, eye):
     return None
 
 
+@app.get("/api/artifact/{name}")
+def artifact(name: str):
+    """302 to a derived-tier artifact by its cache name (posters/clips recorded on the
+    persisted index and catalog cards). Zero compute: one memoized HEAD + presign.
+    Names are opaque etag-keyed file names; only what the tier holds is served."""
+    if "/" in name or name.startswith(".") or not name.endswith((".mp4", ".jpg")):
+        raise HTTPException(404, "no such artifact")
+    url = cache.remote_url(name)
+    if url:
+        return RedirectResponse(url, status_code=302)
+    local = cache.path_for(name)
+    if local.exists() and local.stat().st_size > 0:
+        return FileResponse(local, media_type="video/mp4" if name.endswith(".mp4") else "image/jpeg")
+    raise HTTPException(404, "no such artifact")
+
+
 @app.get("/api/sources/{sid}/tasks/{task}/episodes/{episode}/video/poster")
 def episode_video_poster(sid: str, task: str, episode: str, camera: str, eye: str = Query("left")):
     """First frame of a clip as JPEG — the tile's poster before the video starts.

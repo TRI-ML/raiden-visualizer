@@ -259,7 +259,9 @@ def test_catalog_preview_for_mcap_sources_only_uses_already_rendered_clips(remot
     assert catalog._pick_preview(src, ["cam0", "cam1"]) is None      # nothing rendered: placeholder
     remote.objects["derived/yam_etag_cam1.mp4"] = b"mp4"
     pv = catalog._pick_preview(src, ["cam0", "cam1"])
-    assert pv == {"task": "t", "episode": "e1", "camera": "cam1", "cameras": ["cam0", "cam1"]}
+    assert {k: pv[k] for k in ("task", "episode", "camera", "cameras")} == \
+        {"task": "t", "episode": "e1", "camera": "cam1", "cameras": ["cam0", "cam1"]}
+    assert pv["clip_name"] == "yam_etag_cam1.mp4"
     assert src.posters == ["cam1"]                                    # poster produced at build time
 
 
@@ -289,3 +291,25 @@ def test_pages_have_the_preview_elements():
     js = (root / "app.js").read_text()
     assert 'id="task-head"' in html
     assert "function previewBox" in js and "previewBox(c.id, c.preview)" in js and "renderTaskHead(" in js
+
+
+def test_preview_carries_artifact_names_from_the_manifest(remote, monkeypatch):
+    src = sources.LeRobotSource(SPEC)
+    src._meta_cache["plate"] = {"info": INFO, "tasks": {}, "episodes": {7: ROW}, "ikey": "k"}
+    src._clips_cache["plate"] = {"episode_000007|scene_camera": "lerobot_e_scene_camera_0.000-47.000.mp4"}
+    monkeypatch.setattr(src, "_list_tasks_raw", lambda: ["plate"])
+    pv = src.rebuild_source_index()["tasks"][0]["preview"]
+    assert pv["clip_name"] == "lerobot_e_scene_camera_0.000-47.000.mp4"
+    assert pv["poster_name"] == "lerobot_e_scene_camera_0.000-47.000.jpg"
+    assert pv["poster_names"] == {"scene_camera": "lerobot_e_scene_camera_0.000-47.000.jpg"}
+
+
+def test_artifact_route_redirects_by_name_and_rejects_the_rest(remote, monkeypatch):
+    from fastapi.testclient import TestClient
+    from raiden_viz import app as app_module
+    c = TestClient(app_module.app)
+    remote.objects["derived/lerobot_e_cam.jpg"] = b"jpg"
+    r = c.get("/api/artifact/lerobot_e_cam.jpg", follow_redirects=False)
+    assert r.status_code == 302 and "lerobot_e_cam.jpg" in r.headers["location"]
+    assert c.get("/api/artifact/missing.jpg").status_code == 404
+    assert c.get("/api/artifact/stat_x.json").status_code == 404

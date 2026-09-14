@@ -141,11 +141,15 @@ def _pick_preview(src, cams: list[str]) -> dict | None:
                     continue
                 local = cache.path_for(name) if name else None
                 if name and ((local.exists() and local.stat().st_size > 0) or cache.remote_ready(name)):
+                    pv = {"task": task, "episode": eps[0], "camera": cam, "cameras": cams,
+                          "clip_name": name if cache.remote_ready(name) else None}
                     try:
-                        src.poster_path(task, eps[0], cam, "left")
+                        jpg = src.poster_path(task, eps[0], cam, "left")
+                        if cache.remote_ready(jpg.name):
+                            pv["poster_name"] = jpg.name
                     except Exception:
                         pass
-                    return {"task": task, "episode": eps[0], "camera": cam, "cameras": cams}
+                    return pv
     except Exception:
         return None
     return None

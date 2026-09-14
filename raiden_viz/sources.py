@@ -817,7 +817,7 @@ class LeRobotSource(Source):
 
     # ---- source index: everything the overview / stats / browse pages need ------
 
-    SOURCE_INDEX_V = 2   # v2: per-task preview (episode, camera) + facts
+    SOURCE_INDEX_V = 3   # v3: per-task preview (episode, camera, artifact names) + facts
 
     def _source_blob(self) -> str:
         return f"lerobot_source_{self.id}_v{self.SOURCE_INDEX_V}.json"
@@ -876,6 +876,18 @@ class LeRobotSource(Source):
             if names and cams:
                 cam = next((c for c in cams if "scene" in c), cams[0])
                 preview = {"episode": names[0], "camera": cam, "cameras": cams}
+                # Artifact names straight from the clip manifest, so a card can 302 to
+                # the poster/clip with no meta load at all (GET /api/artifact/{name}).
+                try:
+                    manifest = self._clip_manifest(t)
+                except Exception:
+                    manifest = {}
+                clip = manifest.get(f"{names[0]}|{cam}")
+                if clip:
+                    preview["clip_name"] = clip
+                    preview["poster_name"] = poster_name(clip)
+                    preview["poster_names"] = {c: poster_name(manifest[f"{names[0]}|{c}"])
+                                               for c in cams if f"{names[0]}|{c}" in manifest}
             tasks.append({"task": t, "ikey": meta.get("ikey"), "episodes": len(names),
                           "latest": names[-1] if names else None,
                           "cameras": cams, "fps": info.get("fps"),
