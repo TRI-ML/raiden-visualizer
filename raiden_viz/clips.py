@@ -70,16 +70,29 @@ class ClipJobs:
             if job is not None and not (retry and job["error"] is not None):
                 return dict(job)
             self._jobs[key] = {"decoding": True, "ready": False,
-                               "error": None, "error_type": None}
+                               "error": None, "error_type": None, "path": None}
             self._prune_locked()
         threading.Thread(target=self._run, args=(key, produce), daemon=True).start()
         return self.state(key) or {"decoding": True, "ready": False,
-                                   "error": None, "error_type": None}
+                                   "error": None, "error_type": None, "path": None}
+
+    def mark_ready(self, key: str, path) -> dict:
+        """Register a clip that needs no decode (it is already in a cache tier) as a
+        finished job, so the first status poll says ready and /video reuses the
+        resolved path instead of re-deriving it. A job already known wins."""
+        with self._lock:
+            job = self._jobs.get(key)
+            if job is None:
+                job = self._jobs[key] = {"decoding": False, "ready": True, "error": None,
+                                         "error_type": None, "path": str(path)}
+                self._prune_locked()
+            return dict(job)
 
     def _run(self, key: str, produce) -> None:
         error = error_type = None
+        path = None
         try:
-            produce()
+            path = produce()
         except Exception as e:
             error, error_type = str(e), type(e).__name__
             # LOG it. The state carries the message, but a decode that dies with
@@ -91,7 +104,8 @@ class ClipJobs:
             job = self._jobs.get(key)
             if job is not None:          # may have been pruned mid-decode
                 job.update(decoding=False, ready=error is None,
-                           error=error, error_type=error_type)
+                           error=error, error_type=error_type,
+                           path=str(path) if (error is None and path is not None) else None)
 
     def _prune_locked(self) -> None:
         """Evict finished jobs, oldest first, until back under the cap. Never evicts

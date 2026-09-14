@@ -243,12 +243,43 @@ function sourceKind() {
   return s ? s.kind : null;
 }
 
-// What the first load of a clip costs on this source, for the tile caption.
+// Why a first load can take a while, for the tile's sub-caption. Only the MCAP
+// sources transcode .svo2; everything else just says it is preparing the clip.
 function decodeHint() {
   const k = sourceKind();
-  if (k === "lerobot" || k === "lerobot_single") return "first load converts the episode clip";
-  if (k === "raiden" || k === "yam") return "first load transcodes .svo2 → mp4";
-  return "first load renders the clip";
+  return (k === "raiden" || k === "yam") ? "first load transcodes .svo2 → mp4" : "";
+}
+
+// One overlay for every video tile: thin spinner + a short state word. States:
+// "Loading" (resolving), "Preparing…" (the server is really decoding),
+// "Unavailable" (+ reason). set() swaps text in place, so nothing flashes.
+function tileOverlay(initial = "Loading") {
+  const overlay = el("div", "cam-overlay");
+  const spin = el("div", "spinner");
+  const msg = el("div", "cam-msg", initial);
+  const sub = el("div", "cam-sub", "");
+  overlay.appendChild(spin);
+  overlay.appendChild(msg);
+  overlay.appendChild(sub);
+  return {
+    el: overlay,
+    set(text, subText = "") { msg.textContent = text; sub.textContent = subText; },
+    preparing() { this.set("Preparing…", decodeHint()); },
+    fail(reason) {
+      overlay.classList.add("err");
+      spin.remove();
+      this.set("Unavailable", reason || "");
+    },
+    hide() { overlay.classList.add("hidden"); },
+  };
+}
+
+// Keep a tile's box at the clip's real aspect once known (sim cams are square,
+// station cams 16:9); until then the CSS default applies.
+function fitTileAspect(tile, video) {
+  if (video.videoWidth && video.videoHeight) {
+    tile.style.aspectRatio = `${video.videoWidth} / ${video.videoHeight}`;
+  }
 }
 
 // Poll /video/status until the clip is decoded. Resolves {ok: true}, {ok: false, msg}
@@ -961,16 +992,25 @@ async function renderAnalytics(taskOrder) {
 // their first view. Episodes come from the stats sample when it covers the task,
 // else from that task's /episodes list.
 function renderPreview(records, taskOrder) {
-  const body = $("#preview-body"), hint = $("#preview-hint"), sel = $("#preview-task");
+  const hint = $("#preview-hint"), sel = $("#preview-task"), btn = $("#preview-sample");
   clearPreview();
   hint.textContent = "";
   sel.innerHTML = "";
   state.previewRecords = (records || []).filter((e) => e.task && e.episode);
+  state.previewEpisodes = {};     // task -> full episode list, fetched on demand
+  state.previewPair = [];
   const tasks = taskOrder.length ? taskOrder : [...new Set(state.previewRecords.map((e) => e.task))];
-  if (!tasks.length) { hint.textContent = "no episodes"; sel.classList.add("hidden"); return; }
+  if (!tasks.length) {
+    hint.textContent = "no episodes";
+    sel.classList.add("hidden");
+    btn.classList.add("hidden");
+    return;
+  }
   sel.classList.remove("hidden");
+  btn.classList.remove("hidden");
   tasks.forEach((t) => sel.appendChild(new Option(t, t)));
   sel.onchange = () => showPreviewTask(sel.value);
+  btn.onclick = () => showPreviewTask(sel.value, true);
   showPreviewTask(tasks[0]);
 }
 
@@ -980,36 +1020,64 @@ function clearPreview() {
   body.innerHTML = "";
 }
 
-async function showPreviewTask(task) {
+// The task's episode ids, from the stats sample when it covers the task, else from
+// /episodes (fetched once per task per overview visit).
+async function previewEpisodeList(task, wantAll) {
+  if (state.previewEpisodes[task]) return state.previewEpisodes[task];
+  let eps = state.previewRecords.filter((e) => e.task === task).map((e) => e.episode);
+  if (wantAll || eps.length < 2) {
+    eps = (await api(`${apiBase()}/tasks/${encodeURIComponent(task)}/episodes`)).episodes || [];
+    state.previewEpisodes[task] = eps;
+  }
+  return eps;
+}
+
+// Default picks are deterministic (first + middle); "Sample random" draws two new
+// episodes from the task's full list, never repeating the pair on screen.
+function pickPreviewEpisodes(eps, random) {
+  if (eps.length <= 2) return eps.slice();
+  if (!random) {
+    const mid = eps[Math.floor(eps.length / 2)];
+    return mid === eps[0] ? [eps[0]] : [eps[0], mid];
+  }
+  const current = new Set(state.previewPair || []);
+  const pool = eps.filter((e) => !current.has(e));
+  const out = [];
+  while (out.length < 2 && pool.length) {
+    out.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0]);
+  }
+  return out;
+}
+
+async function showPreviewTask(task, random = false) {
   const body = $("#preview-body"), hint = $("#preview-hint");
   clearPreview();
   hint.textContent = "loading…";
   const forSource = state.source;
+  const gen = (state.previewGen = (state.previewGen || 0) + 1);
   state.previewTask = task;
-  let eps = state.previewRecords.filter((e) => e.task === task).map((e) => e.episode);
-  if (eps.length < 2) {
-    try {
-      eps = (await api(`${apiBase()}/tasks/${encodeURIComponent(task)}/episodes`)).episodes || [];
-    } catch (e) {
-      hint.textContent = "preview unavailable";
-      return;
-    }
+  const stale = () => state.source !== forSource || state.previewGen !== gen;
+  let eps;
+  try {
+    eps = await previewEpisodeList(task, random);
+  } catch (e) {
+    if (!stale()) hint.textContent = "preview unavailable";
+    return;
   }
-  if (state.source !== forSource || state.previewTask !== task) return;
+  if (stale()) return;
   if (!eps.length) { hint.textContent = "no episodes"; return; }
-  const picks = [eps[0]];
-  const mid = eps[Math.floor(eps.length / 2)];
-  if (mid !== eps[0]) picks.push(mid);
-  hint.textContent = `${picks.join(", ")} of ${eps.length.toLocaleString()}`;
+  const picks = pickPreviewEpisodes(eps, random);
+  state.previewPair = picks;
+  hint.textContent = `${picks.join(", ")} · ${eps.length.toLocaleString()} episodes`;
   let cameras;
   try {
     cameras = await previewCameras({ task, episode: picks[0] });
   } catch (e) {
-    hint.textContent = "preview unavailable";
+    if (!stale()) hint.textContent = "preview unavailable";
     return;
   }
-  if (state.source !== forSource || state.previewTask !== task) return;
-  picks.forEach((ep) => body.appendChild(previewRow({ task, episode: ep }, cameras)));
+  if (stale()) return;
+  picks.forEach((ep) => body.appendChild(previewRow({ task, episode: ep }, cameras, stale)));
 }
 
 // Camera names for the tiles: from the catalog when it's already built (no extra
@@ -1025,13 +1093,14 @@ async function previewCameras(rec) {
   return (detail.cameras || []).filter((c) => c.has_video !== false).map((c) => c.name);
 }
 
-function previewRow(rec, cameras) {
+function previewRow(rec, cameras, stale) {
   const row = el("div", "pv-row");
   const link = el("a", "pv-link mono", rec.episode);
   link.href = "#" + [state.source, rec.task, rec.episode].map(encodeURIComponent).join("/");
   link.onclick = (ev) => { ev.preventDefault(); selectTask(rec.task, rec.episode); };
   row.appendChild(link);
-  const forSource = state.source, forTask = state.previewTask;
+  const tiles = el("div", "pv-tiles");
+  row.appendChild(tiles);
   const base = `${apiBase()}/tasks/${encodeURIComponent(rec.task)}/episodes/${encodeURIComponent(rec.episode)}`;
   cameras.forEach((cam) => {
     const tile = el("div", "pv-tile");
@@ -1041,23 +1110,17 @@ function previewRow(rec, cameras) {
     video.autoplay = true;
     video.playsInline = true;
     video.preload = "auto";
-    const overlay = el("div", "cam-overlay");
-    overlay.appendChild(el("div", "spinner"));
-    const msg = el("div", "cam-msg", "Loading…");
-    overlay.appendChild(msg);
+    const ov = tileOverlay();
     tile.appendChild(video);
     tile.appendChild(camLabel(cam));
-    tile.appendChild(overlay);
-    row.appendChild(tile);
+    tile.appendChild(ov.el);
+    tiles.appendChild(tile);
     const q = `camera=${encodeURIComponent(cam)}&eye=left`;
-    waitForClip(`${base}/video/status?${q}`, {
-      stale: () => state.source !== forSource || state.previewTask !== forTask,
-      onDecoding: () => { msg.textContent = "Decoding…"; },
-    }).then((res) => {
+    waitForClip(`${base}/video/status?${q}`, { stale, onDecoding: () => ov.preparing() }).then((res) => {
       if (!res) return;
-      if (!res.ok) { overlay.classList.add("err"); msg.textContent = res.msg; return; }
-      video.onloadeddata = () => overlay.classList.add("hidden");
-      video.onerror = () => { overlay.classList.add("err"); msg.textContent = "Could not play this clip"; };
+      if (!res.ok) { ov.fail(res.msg); return; }
+      video.onloadeddata = () => { fitTileAspect(tile, video); ov.hide(); };
+      video.onerror = () => ov.fail("could not play this clip");
       video.src = `${base}/video?${q}`;
       video.play().catch(() => {});
     });
@@ -1707,11 +1770,10 @@ function buildCameraGrid(cameras) {
 function makeCamTile(name, msg, sub, isError = false) {
   const tile = el("div", "cam-tile");
   if (name) tile.appendChild(camLabel(name));
-  const ov = el("div", "cam-overlay" + (isError ? " err" : ""));
-  ov.appendChild(el("div", "cam-icon"));
-  ov.appendChild(el("div", "cam-msg", msg));
-  if (sub) ov.appendChild(el("div", "cam-sub", sub));
-  tile.appendChild(ov);
+  const ov = tileOverlay(msg);
+  ov.el.querySelector(".spinner").remove();     // static: nothing is in flight
+  if (isError) ov.fail(sub); else ov.set(msg, sub || "");
+  tile.appendChild(ov.el);
   return tile;
 }
 
@@ -1728,19 +1790,14 @@ function makeVideoTile(c) {
   video.playsInline = true;
   video.preload = "auto";
   video.muted = true;              // required for programmatic play of many tiles
-  const overlay = el("div", "cam-overlay");
-  overlay.appendChild(el("div", "spinner"));
-  const msgEl = el("div", "cam-msg", "Loading…");
-  const subEl = el("div", "cam-sub", "");
-  overlay.appendChild(msgEl);
-  overlay.appendChild(subEl);
+  const ov = tileOverlay();
 
   tile.appendChild(video);
   // EE-trace overlay canvas (only meaningful for cameras with projection params).
   const traceCanvas = el("canvas", "cam-trace");
   tile.appendChild(traceCanvas);
   tile.appendChild(label);
-  tile.appendChild(overlay);
+  tile.appendChild(ov.el);
 
   const clipBase =
     `${apiBase()}/tasks/${encodeURIComponent(state.task)}/episodes/${encodeURIComponent(state.episode)}`;
@@ -1758,7 +1815,8 @@ function makeVideoTile(c) {
   const onReady = () => {
     if (tileState.ready) return;
     tileState.ready = true;
-    overlay.classList.add("hidden");
+    ov.hide();
+    fitTileAspect(tile, video);
     label.innerHTML = "";
     label.appendChild(document.createTextNode(prettyCam(c.name)));
     label.appendChild(el("span", "cam-dims", `${video.videoWidth}×${video.videoHeight}`));
@@ -1774,21 +1832,8 @@ function makeVideoTile(c) {
   video.onloadedmetadata = onReady;
   video.oncanplay = onReady;
   video.onloadeddata = onReady;
-  video.onerror = () => {
-    overlay.className = "cam-overlay err";
-    overlay.innerHTML = "";
-    overlay.appendChild(el("div", "cam-icon"));
-    overlay.appendChild(el("div", "cam-msg", "Could not decode this stream"));
-    overlay.appendChild(el("div", "cam-sub", c.name));
-  };
-
-  const failWith = (msg) => {
-    overlay.className = "cam-overlay err";
-    overlay.innerHTML = "";
-    overlay.appendChild(el("div", "cam-icon"));
-    overlay.appendChild(el("div", "cam-msg", msg));
-    overlay.appendChild(el("div", "cam-sub", c.name));
-  };
+  video.onerror = () => ov.fail("could not play this stream");
+  const failWith = (msg) => ov.fail(msg);
 
   // Wait for the DECODE, then hand the clip to the element. Pointing video.src
   // straight at /video puts a multi-minute transcode (cross-region download plus
@@ -1798,7 +1843,7 @@ function makeVideoTile(c) {
   // the decode goes on to succeed server-side. See raiden_viz/clips.py.
   waitForClip(statusUrl, {
     stale: () => state.task !== mountedTask || state.episode !== mountedEpisode,
-    onDecoding: () => { msgEl.textContent = "Decoding…"; subEl.textContent = decodeHint(); },
+    onDecoding: () => ov.preparing(),
   }).then((res) => {
     if (!res) return;                 // navigated away; tile is gone
     if (!res.ok) { failWith(res.msg); return; }

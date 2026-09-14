@@ -162,3 +162,13 @@ WARM_CATALOG_ON_START = os.environ.get("RAIDEN_WARM_CATALOG", "1").strip().lower
 )
 
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+# Boot-time scan warmup. Every deploy starts with an empty CACHE_DIR, so without a
+# durable copy the full per-episode scan (51 min on the largest source at 32 threads)
+# re-ran after every deploy and, with 8 sources at once, starved clip requests on the
+# 2-vCPU task for minutes. A finished scan is now persisted to the derived tier and
+# reused while fresh; a real rescan runs one source at a time on a few threads.
+SCAN_WORKERS = int(os.environ.get("RAIDEN_SCAN_WORKERS", "32"))
+SCAN_WARMUP_WORKERS = int(os.environ.get("RAIDEN_SCAN_WARMUP_WORKERS", "4"))
+SCAN_WARMUP_PAUSE_S = float(os.environ.get("RAIDEN_SCAN_WARMUP_PAUSE_S", "0.05"))
+SCAN_PERSIST_TTL_S = float(os.environ.get("RAIDEN_SCAN_PERSIST_TTL_S", str(3 * 86400)))
