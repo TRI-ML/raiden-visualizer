@@ -292,11 +292,15 @@ function previewBox(sid, pv, { label = true } = {}) {
   const base = `/api/sources/${encodeURIComponent(sid)}/tasks/${encodeURIComponent(pv.task)}` +
                `/episodes/${encodeURIComponent(pv.episode)}`;
   const q = `camera=${encodeURIComponent(pv.camera)}&eye=left`;
+  // Artifact names recorded at build time skip every per-request lookup.
+  const pName = pv.poster_name || (pv.poster_names && pv.poster_names[pv.camera]);
+  const posterSrc = pName ? `/api/artifact/${encodeURIComponent(pName)}` : `${base}/video/poster?${q}`;
+  const clipSrc = pv.clip_name ? `/api/artifact/${encodeURIComponent(pv.clip_name)}` : `${base}/video?${q}`;
   const img = document.createElement("img");
   img.loading = "lazy";
   img.decoding = "async";
   img.alt = "";
-  img.src = `${base}/video/poster?${q}`;
+  img.src = posterSrc;
   img.onload = () => img.classList.add("loaded");
   img.onerror = () => { img.remove(); box.classList.add("empty"); };
   box.appendChild(img);
@@ -307,7 +311,7 @@ function previewBox(sid, pv, { label = true } = {}) {
     video = document.createElement("video");
     video.muted = true; video.loop = true; video.autoplay = true; video.playsInline = true;
     video.poster = img.src;
-    video.src = `${base}/video?${q}`;
+    video.src = clipSrc;
     video.onerror = () => stop();
     box.insertBefore(video, box.firstChild.nextSibling);
     video.play().catch(() => {});
@@ -327,7 +331,8 @@ function previewBox(sid, pv, { label = true } = {}) {
 function previewStrip(sid, pv) {
   const strip = el("div", "cat-strip");
   (pv.cameras || []).slice(0, 4).forEach((cam) => {
-    strip.appendChild(previewBox(sid, { ...pv, camera: cam }, { label: false }));
+    const sub = { ...pv, camera: cam, poster_name: null, clip_name: cam === pv.camera ? pv.clip_name : null };
+    strip.appendChild(previewBox(sid, sub, { label: false }));
   });
   return strip;
 }
