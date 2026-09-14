@@ -45,6 +45,7 @@ def test_walk_happens_when_estimate_reaches_cap(cache_dir):
     assert not (cache_dir / "old.mp4").exists() and (cache_dir / "new.mp4").exists()
     assert cache._evict_state["usage"] == 600
     # produce more without walking: estimate crosses the cap -> next evict walks
+    time.sleep(0.02)                             # distinct mtime (coarse kernel clock ties otherwise)
     (cache_dir / "newer.mp4").write_bytes(b"x" * 600)
     cache.note_produced(600)
     cache.evict()

@@ -26,9 +26,7 @@ def main(argv=None) -> int:
     ap.add_argument("--source", required=True, help="source id, e.g. yam_sim")
     ap.add_argument("--task", action="append", default=[], help="task name (repeatable)")
     ap.add_argument("--all", action="store_true", help="every task of the source")
-    ap.add_argument("--camera", action="append", default=None, help="restrict to these cameras")
     ap.add_argument("--workers", type=int, default=4)
-    ap.add_argument("--limit", type=int, default=0, help="first N episodes only (0 = all)")
     args = ap.parse_args(argv)
     if not args.task and not args.all:
         ap.error("give --task or --all")
@@ -43,9 +41,6 @@ def main(argv=None) -> int:
     tasks = src.list_tasks() if args.all else args.task
     total_failed = 0
     for task in tasks:
-        eps = src.list_episodes(task)
-        if args.limit:
-            eps = eps[: args.limit]
         t0 = time.perf_counter()
         last = [0.0]
 
@@ -56,13 +51,15 @@ def main(argv=None) -> int:
             if done == n or now - last[0] > 10:
                 last[0] = now
                 el = now - _t0
-                print(f"[warm {_task}] {done}/{n} clips, {el:.0f}s, "
-                      f"{el / done:.2f} s/clip, eta {el / done * (n - done) / 60:.1f} min", flush=True)
+                print(f"[warm {_task}] {done}/{n} artifacts, {el:.0f}s, "
+                      f"{el / max(done, 1):.2f} s/item, eta {el / max(done, 1) * (n - done) / 60:.1f} min",
+                      flush=True)
 
-        res = src.warm(task, cameras=args.camera, episodes=eps, workers=args.workers, progress=progress)
+        res = src.warm_task(task, workers=args.workers, progress=progress)
         total_failed += len(res["failed"])
-        print(f"[warm {task}] done: {res['ok']}/{res['clips']} clips ok, {len(res['failed'])} failed, "
-              f"{time.perf_counter() - t0:.0f}s", flush=True)
+        print(f"[warm {task}] done: {res['ok']} ok, {len(res['failed'])} failed "
+              f"({res['episodes']} episodes, {res['clips']} clips), {time.perf_counter() - t0:.0f}s",
+              flush=True)
     return 1 if total_failed else 0
 
 

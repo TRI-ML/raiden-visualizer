@@ -43,7 +43,7 @@ def test_list_tasks_skips_folders_without_a_dataset(monkeypatch):
         return sources.s3.S3Object(key, 1, "e") if key in present else None
 
     monkeypatch.setattr(sources.s3, "try_head", try_head)
-    assert sources.LeRobotSource(SPEC).list_tasks() == ["front2_tbl"]
+    assert sources.LeRobotSource(SPEC)._list_tasks_raw() == ["front2_tbl"]
     assert all(b == "tri-yam" for _, b in heads)
 
 
@@ -51,7 +51,7 @@ def test_list_tasks_without_subdir_does_not_probe(monkeypatch):
     monkeypatch.setattr(sources.s3, "list_dirs", lambda prefix, bucket=None: ["a", "b"])
     monkeypatch.setattr(sources.s3, "try_head",
                         lambda *a, **k: pytest.fail("flat layout must not HEAD per task"))
-    assert sources.LeRobotSource(FLAT).list_tasks() == ["a", "b"]
+    assert sources.LeRobotSource(FLAT)._list_tasks_raw() == ["a", "b"]
 
 
 def test_yam_sim_source_reads_tri_yam():

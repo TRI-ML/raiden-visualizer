@@ -366,7 +366,77 @@ def scan_start(sid: str, force: bool = Query(False)):
     stats — the data behind the episode filter. Returns an immediate snapshot.
     ``?force=true`` rescans a source whose finished scan predates its data (e.g. a
     dataset uploaded after boot); a scan still running is never interrupted."""
-    return _src(sid).scan_start(force=force)
+    src = _src(sid)
+    if force and hasattr(src, "rebuild_source_index"):
+        threading.Thread(target=src.rebuild_source_index, daemon=True).start()
+    return src.scan_start(force=force)
+
+
+@app.post("/api/sources/{sid}/index/rebuild")
+def index_rebuild(sid: str):
+    """Rebuild a LeRobot source's S3-resident index (tasks, counts, stat records)
+    now — after a dataset upload. Runs in the background; the stale index is served
+    until it lands."""
+    src = _src(sid)
+    if not hasattr(src, "rebuild_source_index"):
+        raise HTTPException(404, "source has no index")
+    threading.Thread(target=src.rebuild_source_index, daemon=True).start()
+    return {"ok": True, "rebuilding": True}
+
+
+# ---- server-side warm: everything a task needs, left in the derived tier --------
+_WARMS: dict[str, dict] = {}
+_WARMS_LOCK = threading.Lock()
+
+
+@app.post("/api/sources/{sid}/tasks/{task}/warm")
+def warm_start(sid: str, task: str, workers: int = Query(3), posters: bool = Query(True),
+               details: bool = Query(True)):
+    """Start (or report) a background warm of one task: meta index, per-episode
+    detail JSON, clips, posters, clip manifest, source index. Idempotent while
+    running; a finished warm can be started again (it skips what exists)."""
+    src = _src(sid)
+    if not hasattr(src, "warm_task"):
+        raise HTTPException(404, "source cannot be warmed")
+    key = f"{sid}/{task}"
+    with _WARMS_LOCK:
+        st = _WARMS.get(key)
+        if st and st["running"]:
+            return dict(st)
+        st = _WARMS[key] = {"running": True, "done": False, "total": 0, "completed": 0,
+                            "failed": 0, "error": None, "started_at": time.time(),
+                            "result": None}
+
+    def progress(done, total, res):
+        st["completed"], st["total"] = done, total
+        if res is not None:
+            st["failed"] += 1
+
+    def run():
+        try:
+            st["result"] = src.warm_task(task, workers=max(1, min(workers, 6)), progress=progress,
+                                         posters=posters, details=details)
+        except Exception as e:  # noqa: BLE001
+            logger.exception("warm failed for %s", key)
+            st["error"] = str(e)
+        finally:
+            st["running"], st["done"] = False, True
+
+    threading.Thread(target=run, daemon=True, name=f"warm-{task}").start()
+    return dict(st)
+
+
+@app.get("/api/sources/{sid}/tasks/{task}/warm")
+def warm_status(sid: str, task: str):
+    with _WARMS_LOCK:
+        st = _WARMS.get(f"{sid}/{task}")
+    if st is None:
+        return {"running": False, "done": False}
+    out = dict(st)
+    if out.get("result"):
+        out["result"] = {k: v for k, v in out["result"].items() if k != "failed"} | \
+            {"failed_n": len(out["result"].get("failed", []))}
+    return out
 
 
 @app.get("/api/sources/{sid}/scan")
@@ -451,6 +521,25 @@ def _resolved_clip(src, task, episode, camera, eye):
     if (local.exists() and local.stat().st_size > 0) or cache.remote_ready(name):
         return local
     return None
+
+
+@app.get("/api/sources/{sid}/tasks/{task}/episodes/{episode}/video/poster")
+def episode_video_poster(sid: str, task: str, episode: str, camera: str, eye: str = Query("left")):
+    """First frame of a clip as JPEG — the tile's poster before the video starts.
+    Derived-first like the clip; a 302 to the bucket when the tier holds it."""
+    src = _src(sid)
+    if not hasattr(src, "poster_path"):
+        raise HTTPException(404, "no posters for this source")
+    try:
+        jpg = src.poster_path(task, episode, camera, eye)
+    except FileNotFoundError as e:
+        raise HTTPException(404, str(e))
+    url = cache.remote_url(jpg.name)
+    if url:
+        return RedirectResponse(url, status_code=302)
+    if not jpg.exists() and not cache.exists(jpg.name):
+        raise HTTPException(404, "poster unavailable")
+    return FileResponse(jpg, media_type="image/jpeg")
 
 
 @app.get("/api/sources/{sid}/tasks/{task}/episodes/{episode}/video/status")
