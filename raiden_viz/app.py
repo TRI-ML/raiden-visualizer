@@ -367,8 +367,13 @@ def scan_start(sid: str, force: bool = Query(False)):
     ``?force=true`` rescans a source whose finished scan predates its data (e.g. a
     dataset uploaded after boot); a scan still running is never interrupted."""
     src = _src(sid)
-    if force and hasattr(src, "rebuild_source_index"):
-        threading.Thread(target=src.rebuild_source_index, daemon=True).start()
+    if force:
+        # A forced rescan is how a dataset removal is announced: refresh the index
+        # (LeRobot) and drop preview entries for tasks that are gone (any kind).
+        if hasattr(src, "rebuild_source_index"):
+            threading.Thread(target=src.rebuild_source_index, daemon=True).start()
+        else:
+            threading.Thread(target=lambda: src.prune_previews(src.list_tasks()), daemon=True).start()
     return src.scan_start(force=force)
 
 
