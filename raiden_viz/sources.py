@@ -218,14 +218,32 @@ class Source:
                 self._previews_cached = pv
         return pv
 
+    def prune_previews(self, live_tasks) -> int:
+        """Drop preview entries for tasks that no longer exist (a dataset removed from
+        S3); rewrite the blob only when something was dropped. Returns the count."""
+        live = set(live_tasks)
+        current = self.previews()
+        gone = [t for t in current if t not in live]
+        if not gone:
+            return 0
+        kept = {t: e for t, e in current.items() if t in live}
+        cache.put_json(previews.blob_name(self.id),
+                       {"v": previews.PREVIEWS_V, "built_at": time.time(), "tasks": kept}, remote=True)
+        with self._overview_lock:
+            self._previews_cached = kept
+            self._overview_cached = None
+        return len(gone)
+
     def preview_warm(self, tasks=None, progress=None, only_missing: bool = True) -> dict:
         """Build the small preview assets (poster + 5 s clip per camera) for the first
         episode of every task and persist the blob. Sequential: one task at a time,
         one S3 range read per raw camera file — cheap enough to run beside traffic.
         Resumable: the blob is rewritten after every task."""
         import tempfile
+        live = self.list_tasks()
+        pruned = self.prune_previews(live)          # removed datasets leave no ghosts
         current = dict(self.previews())
-        todo = [t for t in (tasks or self.list_tasks()) if not (only_missing and t in current)]
+        todo = [t for t in (tasks or live) if not (only_missing and t in current)]
         failed = []
         for i, task in enumerate(todo):
             try:
@@ -250,7 +268,7 @@ class Source:
                 failed.append((task, f"{type(ex).__name__}: {ex}"))
             if progress:
                 progress(i + 1, len(todo), failed[-1] if failed and failed[-1][0] == task else None)
-        return {"tasks": len(todo), "ok": len(todo) - len(failed), "failed": failed}
+        return {"tasks": len(todo), "ok": len(todo) - len(failed), "failed": failed, "pruned": pruned}
 
     def _build_overview(self) -> dict:
         tasks = self.list_tasks()
@@ -954,6 +972,10 @@ class LeRobotSource(Source):
         cache.put_json(self._source_blob(), idx, remote=True)
         with self._index_lock:
             self._source_index = idx
+        try:
+            self.prune_previews([t["task"] for t in tasks])
+        except Exception:
+            log.exception("preview prune failed for %s", self.id)
         return idx
 
     def _build_overview(self) -> dict:

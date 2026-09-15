@@ -106,7 +106,7 @@ def test_preview_warm_persists_a_blob_and_overview_carries_it(remote, monkeypatc
                         lambda s, task, ep, wd: {"ego_camera": ("pv_E_ego_camera.jpg", "pv_E_ego_camera.mp4"),
                                                  "wrist": ("pv_E_wrist.jpg", "pv_E_wrist.mp4")})
     res = src.preview_warm()
-    assert res == {"tasks": 2, "ok": 2, "failed": []}
+    assert res == {"tasks": 2, "ok": 2, "failed": [], "pruned": 0}
     blob = json.loads(remote.objects["derived/" + previews.blob_name("r")])
     e = blob["tasks"]["MakeCoffee"]
     assert e["episode"] == "e0" and e["camera"] == "ego_camera" and e["poster_name"] == "pv_E_ego_camera.jpg"
@@ -119,7 +119,7 @@ def test_preview_warm_persists_a_blob_and_overview_carries_it(remote, monkeypatc
     assert fresh.previews()["MakeCoffee"]["episode"] == "e0"
     # only_missing: nothing rebuilt
     monkeypatch.setattr(previews, "build_for", lambda *a: pytest.fail("rebuilt"))
-    assert fresh.preview_warm() == {"tasks": 1, "ok": 1, "failed": []}   # only the empty task is re-listed
+    assert fresh.preview_warm() == {"tasks": 1, "ok": 1, "failed": [], "pruned": 0}   # only the empty task is re-listed
 
 
 def test_catalog_card_prefers_the_small_previews(remote, monkeypatch):
@@ -158,3 +158,31 @@ def test_frontend_uses_the_precomputed_names_and_lazy_loading():
         # the preview box must not poll status or list episodes
         box = js[js.index("function previewBox"):js.index("function previewStrip")]
         assert forbidden not in box
+
+
+def test_removed_tasks_are_pruned_from_previews(remote, monkeypatch):
+    src = _Src()
+    monkeypatch.setattr(previews, "build_for",
+                        lambda s, task, ep, wd: {"ego_camera": ("pv_E_ego_camera.jpg", "pv_E_ego_camera.mp4")})
+    src.preview_warm()
+    assert set(src.previews()) == {"MakeCoffee"}
+    # the dataset disappears from S3: the next warm (nothing missing) and a fresh
+    # container's rebuild path both drop it
+    monkeypatch.setattr(src, "list_tasks", lambda: ["Empty"])
+    res = src.preview_warm()
+    assert res["pruned"] == 1 and src.previews() == {}
+    blob = json.loads(remote.objects["derived/" + previews.blob_name("r")])
+    assert blob["tasks"] == {}
+    assert _Src().previews() == {}                       # persisted, not just memoized
+    assert src.prune_previews(["x"]) == 0                # idempotent: nothing to drop, no rewrite
+
+
+def test_lerobot_index_rebuild_prunes_previews(remote, monkeypatch):
+    src = sources.LeRobotSource({"id": "yam_sim", "label": "x", "kind": "lerobot",
+                                 "bucket": "tri-yam", "prefix": "sim_datasets", "subdir": "lerobot"})
+    src._previews_cached = {"gone": {"episode": "e"}, "plate": {"episode": "e"}}
+    info = {"fps": 30, "cameras": ["scene_camera"], "video_keys": {}, "video_path": "", "data_path": ""}
+    src._meta_cache["plate"] = {"info": info, "tasks": {}, "episodes": {}, "ikey": "k"}
+    monkeypatch.setattr(src, "_list_tasks_raw", lambda: ["plate"])
+    src.rebuild_source_index()
+    assert set(src.previews()) == {"plate"}
