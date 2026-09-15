@@ -7,7 +7,7 @@ from pathlib import Path
 # viewer can point at other raw dataset roots.
 #   s3://<bucket>/<prefix>/<task>/<episode>/{metadata.json, cameras/*.svo2, robot_data.npz}
 S3_BUCKET = os.environ.get("RAIDEN_S3_BUCKET", "tri-ml-datasets-uw2")
-S3_PREFIX = os.environ.get("RAIDEN_S3_PREFIX", "raiden_datasets/raw").strip("/")
+S3_PREFIX = os.environ.get("RAIDEN_S3_PREFIX", "tri-yam/raw").strip("/")
 AWS_REGION = os.environ.get("RAIDEN_AWS_REGION", "us-west-2")
 
 # Datasets the viewer can browse. Each has a distinct on-disk format handled by a

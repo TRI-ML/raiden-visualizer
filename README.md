@@ -112,7 +112,7 @@ Then open `http://<host-ip>:8080/`. Links are shareable via the URL hash
 | Var | Default | Meaning |
 | --- | --- | --- |
 | `RAIDEN_S3_BUCKET` | `tri-ml-datasets-uw2` | default S3 bucket for built-in sources |
-| `RAIDEN_S3_PREFIX` | `raiden_datasets/raw` | prefix for the default `raiden` source |
+| `RAIDEN_S3_PREFIX` | `tri-yam/raw` | prefix for the default `raiden` source (raw episodes moved here from `raiden_datasets/raw` on 2026-09-14) |
 | `RAIDEN_AWS_REGION` | `us-west-2` | bucket region |
 | `RAIDEN_HOST` | `0.0.0.0` | bind host |
 | `RAIDEN_PORT` | `8080` | bind port |
