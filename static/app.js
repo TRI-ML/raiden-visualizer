@@ -1941,7 +1941,7 @@ function renderDetail(d) {
   renderRollout(md);
   renderPlots(d.robot);
   renderCalibration(d.calibration, d.cameras || []);
-  renderAnnotations(d.annotations || []);
+  renderAnnotations(d.annotations || [], md.duration_s || 0);
 }
 
 function prettyCam(name) {
@@ -2329,22 +2329,54 @@ function renderRollout(md) {
   if (!shown) notAvailable(body, "No rollout parameters recorded for this episode.");
 }
 
-// Subtask annotations (timestamped). The card is always shown; when an episode
-// has none, it says so rather than vanishing — consistent with the other sections.
-function renderAnnotations(anns) {
-  const body = $("#annotations-body");
-  if (!body) return;
-  if (!anns.length) {
-    notAvailable(body, "No subtask annotations for this episode.");
-    return;
-  }
+// Language timeline: the subtask / Argus labels ({t, text} transitions from the episode detail) become
+// segments [t_i, t_{i+1}) laid out on one track and synced to the video clock like the plot cursors
+// (updateLangTimeline runs from drawAllCursors). Hidden when the episode has no labels.
+function renderAnnotations(anns, durationS) {
+  const card = $("#annotations-card"), body = $("#annotations-body"), track = $("#lang-track");
+  if (!card) return;
+  const timed = anns.filter((a) => a.t != null).sort((a, b) => a.t - b.t);
+  card.classList.toggle("hidden", !timed.length);
+  if (!timed.length) { state.langSegs = []; return; }
+  const last = timed[timed.length - 1].t;
+  const dur = durationS > last ? durationS : last + 1;   // no duration known: give the last label a second
+  state.langSegs = timed.map((a, i) => ({ start: a.t, end: i + 1 < timed.length ? timed[i + 1].t : dur, text: a.text || "" }));
+  state.langDur = dur;
+  $("#lang-count").textContent = `${state.langSegs.length} segments`;
+  track.innerHTML = "";
   body.innerHTML = "";
-  anns.forEach((a) => {
+  const seek = (s) => { seekAll(s.start); updateTransportUI(s.start); drawAllCursors(s.start); drawAllTraces(s.start); };
+  state.langSegs.forEach((s, i) => {
+    const bar = el("div", "lang-seg", s.text);
+    bar.style.left = `${(100 * s.start) / dur}%`;
+    bar.style.width = `${(100 * (s.end - s.start)) / dur}%`;
+    bar.title = `${s.start.toFixed(1)}–${s.end.toFixed(1)} s · ${s.text}`;
+    bar.dataset.i = i;
+    bar.onclick = () => seek(s);
+    track.appendChild(bar);
     const row = el("div", "ann-row");
-    row.appendChild(el("span", "ann-t mono", a.t != null ? `${a.t.toFixed(1)}s` : "—"));
-    row.appendChild(el("span", "ann-text", a.text || ""));
+    row.dataset.i = i;
+    row.appendChild(el("span", "ann-t mono", `${s.start.toFixed(1)}s`));
+    row.appendChild(el("span", "ann-text", s.text));
+    row.onclick = () => seek(s);
     body.appendChild(row);
   });
+  track.appendChild(el("div", "lang-head"));
+  updateLangTimeline(currentTime());
+}
+
+// Move the playhead and highlight the segment that contains `secs`.
+function updateLangTimeline(secs) {
+  const segs = state.langSegs || [];
+  if (!segs.length) return;
+  let active = -1;
+  segs.forEach((s, i) => { if (secs >= s.start && secs < s.end) active = i; });
+  if (active < 0 && secs >= segs[segs.length - 1].end) active = segs.length - 1;
+  $("#lang-now").textContent = active >= 0 ? segs[active].text : "";
+  document.querySelectorAll("#lang-track .lang-seg, #annotations-body .ann-row")
+    .forEach((n) => n.classList.toggle("active", Number(n.dataset.i) === active));
+  const head = $("#lang-track .lang-head");
+  if (head) head.style.left = `${Math.min(100, Math.max(0, (100 * secs) / state.langDur))}%`;
 }
 
 /* ---------------- Robot trajectory plots ---------------- */
@@ -2413,6 +2445,7 @@ const PLOT_PAD = { l: 6, r: 6 };  // must match drawSeries horizontal padding
 
 // Draw the vertical playback cursor on every plot at time `secs`.
 function drawAllCursors(secs) {
+  updateLangTimeline(secs);
   const dur = timelineDuration();
   const frac = dur > 0 ? Math.min(1, Math.max(0, secs / dur)) : 0;
   state.plots.forEach((p) => {

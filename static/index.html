@@ -261,8 +261,11 @@
           <div id="plots"></div>
         </section>
 
-        <section class="card annotations-card" id="annotations-card">
-          <div class="card-head"><h3>Subtask annotations</h3></div>
+        <!-- Language timeline: the subtask / Argus labels as segments synced to the video clock (hidden when none) -->
+        <section class="card annotations-card hidden" id="annotations-card">
+          <div class="card-head"><h3>Language timeline</h3><span id="lang-count" class="mono subtle"></span></div>
+          <div class="lang-now" id="lang-now"></div>
+          <div class="lang-track" id="lang-track"></div>
           <div id="annotations-body" class="annotations-body"></div>
         </section>
 

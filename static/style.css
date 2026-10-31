@@ -323,7 +323,14 @@ select:focus { border-color: var(--accent); }
 .rollout-card, .plot-card, .annotations-card, .calib-card { grid-column: 1 / -1; }
 
 .annotations-body { padding: 8px 16px 14px; display: flex; flex-direction: column; gap: 2px; }
-.ann-row { display: flex; gap: 14px; padding: 7px 0; border-bottom: 1px solid var(--border-soft); font-size: var(--fs-body); }
+.lang-now { padding: 14px 16px 6px; font-size: 20px; font-weight: 600; letter-spacing: -0.01em; min-height: 42px; }
+.lang-track { position: relative; height: 36px; margin: 6px 16px 10px; background: var(--bg-elev); border: 1px solid var(--border-soft); border-radius: 8px; overflow: hidden; }
+.lang-seg { position: absolute; top: 4px; bottom: 4px; box-sizing: border-box; padding: 0 8px; line-height: 26px; font-size: var(--fs-small); color: var(--text-dim);
+  background: var(--accent-soft); border: 1px solid var(--accent-ring); border-radius: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+.lang-seg.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.lang-head { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--bad); pointer-events: none; }
+.ann-row { display: flex; gap: 14px; padding: 7px 0; border-bottom: 1px solid var(--border-soft); font-size: var(--fs-body); cursor: pointer; }
+.ann-row.active .ann-text { color: var(--text); font-weight: 600; }
 .ann-row:last-child { border-bottom: none; }
 .ann-t { color: var(--accent); min-width: 52px; flex: none; }
 .ann-text { color: var(--text-dim); }
