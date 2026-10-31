@@ -165,7 +165,11 @@ select:focus-visible, .dd-btn:focus-visible, .dd-btn[aria-expanded="true"] {
 }
 select:disabled, .dd-btn:disabled { opacity: 0.55; cursor: default; }
 select option { background: var(--bg-elev); color: var(--text); }
-.dd { position: relative; display: block; min-width: 0; }
+.dd { position: relative; display: inline-flex; vertical-align: middle; max-width: 100%; min-width: 0; }
+.dd.full { display: flex; width: 100%; flex: 1 1 auto; }
+.dd.full > .dd-btn { width: 100%; }
+.dd:not(.full) > .dd-btn { width: auto; max-width: 100%; }
+.dd-opt.disabled { opacity: 0.45; cursor: default; }
 .dd-native { position: absolute !important; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 .dd-pop[hidden] { display: none; }
 .dd-pop {
