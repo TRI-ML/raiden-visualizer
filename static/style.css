@@ -129,6 +129,8 @@ html[data-env="prod"] .calib-card, html[data-env="stage"] .calib-card,
 html[data-env="prod"] .ov-preview-card, html[data-env="stage"] .ov-preview-card,
 html[data-env="prod"] .ov-filter-card, html[data-env="stage"] .ov-filter-card,
 html[data-env="prod"] .ov-scatter-card, html[data-env="stage"] .ov-scatter-card { display: none; }
+/* the Filter episodes and Episode-length-vs-recorded-time cards are gone in every mode (markup carries `hidden`) */
+.ov-filter-card[hidden], .ov-scatter-card[hidden] { display: none; }
 
 .search-wrap input {
   width: 100%; padding: 9px 12px; border-radius: var(--radius-sm);
