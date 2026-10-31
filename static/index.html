@@ -13,12 +13,19 @@
 <body class="catalog-mode">
   <aside id="sidebar">
     <div class="brand">
-      <div class="brand-mark" id="brand-home" title="All datasets" style="cursor:pointer"></div>
-      <div id="brand-text" title="All datasets" style="cursor:pointer">
-        <div class="brand-title">YAM Datasets</div>
-        <div class="brand-sub">dataset viewer</div>
+      <h1 id="brand-home" class="wordmark" title="All datasets">YAM <span class="accent">Datasets</span></h1>
+      <div class="brand-segs">
+        <div id="theme-seg" class="seg theme-seg" role="radiogroup" aria-label="Colour theme" title="Colour theme">
+          <button type="button" data-theme="light">Light</button>
+          <button type="button" data-theme="dark">Dark</button>
+        </div>
+        <!-- Dev / Prod links between the hosted sites; app.js lights the current one (from the hostname) and disables it off-host -->
+        <div id="env-seg" class="seg theme-seg" role="radiogroup" aria-label="Site" title="Switch between the dev and prod sites">
+          <button type="button" data-env="dev">Dev</button>
+          <button type="button" data-env="stage" class="hidden">Stage</button>
+          <button type="button" data-env="prod">Prod</button>
+        </div>
       </div>
-      <button id="theme-toggle" class="theme-toggle" type="button" title="Switch light / dark" aria-label="Switch light / dark theme">◐</button>
     </div>
 
     <div class="search-wrap">
@@ -51,7 +58,6 @@
     <div id="catalog-view">
       <header class="ov-header">
         <h1>YAM Datasets</h1>
-        <p class="subtle">Every dataset this viewer can read. Click one to browse its tasks and episodes.</p>
       </header>
       <div class="cat-agg" id="cat-agg"></div>
 
@@ -121,7 +127,6 @@
     <div id="overview-view" class="hidden">
       <header class="ov-header">
         <h1>Dataset overview</h1>
-        <p class="subtle">Episodes, metadata and robot trajectories.</p>
       </header>
 
       <section class="card ov-path-card">

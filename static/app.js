@@ -39,7 +39,7 @@ const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyV
 function applyTheme(t) {
   document.documentElement.dataset.theme = t;
   try { localStorage.setItem("rv_theme", t); } catch (_) {}
-  const b = $("#theme-toggle"); if (b) b.textContent = t === "light" ? "☾" : "☀";
+  document.querySelectorAll("#theme-seg button").forEach((b) => b.classList.toggle("active", b.dataset.theme === t));
   // canvases paint their colours at draw time: redraw whatever is on screen
   if (state.catalog && !state.source) drawCatalogBars(state.catMetric || "episodes");
   if (state.contrib && !state.source) drawContrib(state.contribMetric || "bytes");
@@ -48,9 +48,31 @@ function applyTheme(t) {
   if (state.detail && state.episode) renderPlots(state.detail.robot);
 }
 function initTheme() {
-  const b = $("#theme-toggle");
-  const cur = document.documentElement.dataset.theme || "dark";
-  if (b) { b.textContent = cur === "light" ? "☾" : "☀"; b.onclick = () => applyTheme(document.documentElement.dataset.theme === "light" ? "dark" : "light"); }
+  applyTheme(document.documentElement.dataset.theme || "dark");
+  $("#theme-seg").onclick = (ev) => { const b = ev.target.closest("button"); if (b) applyTheme(b.dataset.theme); };
+}
+
+/* ---------------- Site (dev / stage / prod) ---------------- */
+// Read off the hostname: dev. / stage. prefixes of the hosted site, bare host = prod, anything else (laptop,
+// aws-anthony-1) = local. `?env=` overrides for tests. CSS keys off html[data-env] to hide the fleet-wide
+// activity panels (upload calendar, teleop per day) on dev and local; the Dev / Prod segment links across hosts.
+const HOSTED = "yam-data-visualizer.robotics-apps.tri.global";
+const ENV = new URLSearchParams(location.search).get("env")
+  || (location.hostname === HOSTED ? "prod" : location.hostname === `dev.${HOSTED}` ? "dev" : location.hostname === `stage.${HOSTED}` ? "stage" : "local");
+function initEnv() {
+  document.documentElement.dataset.env = ENV;
+  const seg = $("#env-seg");
+  seg.querySelectorAll("button").forEach((b) => {
+    b.classList.toggle("active", b.dataset.env === ENV);
+    if (b.dataset.env === "stage") b.classList.toggle("hidden", ENV !== "stage");
+    b.disabled = ENV === "local";
+  });
+  if (ENV === "local") seg.title = "Local copy: not one of the hosted sites";
+  seg.onclick = (ev) => {
+    const b = ev.target.closest("button");
+    if (!b || b.disabled || b.dataset.env === ENV) return;
+    location.href = `https://${b.dataset.env === "prod" ? "" : b.dataset.env + "."}${HOSTED}/${location.hash}`;
+  };
 }
 
 async function api(path) {
@@ -108,8 +130,8 @@ async function init() {
   });
   $("#calib-head").addEventListener("click", () => $(".calib-card").classList.toggle("collapsed"));
   $("#brand-home").addEventListener("click", showCatalog);
-  $("#brand-text").addEventListener("click", showCatalog);
   initTheme();
+  initEnv();
   // Catalog comparison-chart metric toggle (Episodes / Hours / Tasks).
   $("#cat-metric-toggle").addEventListener("click", (ev) => {
     const b = ev.target.closest("button");
@@ -510,8 +532,10 @@ async function renderCatalog() {
   // Stash the cards for the comparison bar chart (redrawn on metric toggle / resize).
   state.catalog = data.datasets;
   drawCatalogBars(state.catMetric || "episodes");
-  loadContrib();   // upload-activity calendar (independent /api/contrib scan)
-  loadTeachers();  // raiden teleop-per-day-by-teacher bars (/api/raiden_teachers)
+  if (ENV === "prod" || ENV === "stage") {   // the activity panels are hidden on dev / local (see initEnv)
+    loadContrib();   // upload-activity calendar (independent /api/contrib scan)
+    loadTeachers();  // raiden teleop-per-day-by-teacher bars (/api/raiden_teachers)
+  }
 
   $("#cat-hint").textContent = a.building ? `${a.building} computing…` : `${a.num_datasets} datasets`;
   // Poll while any dataset's deep summary is still building.
@@ -1263,7 +1287,6 @@ function previewRow(rec, cameras, stale) {
     video.preload = "auto";
     const ov = tileOverlay();
     tile.appendChild(video);
-    tile.appendChild(camLabel(cam));
     tile.appendChild(ov.el);
     tiles.appendChild(tile);
     const q = `camera=${encodeURIComponent(cam)}&eye=left`;
