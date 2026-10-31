@@ -1009,7 +1009,8 @@ function renderTaskList() {
   const maxEp = Math.max(1, ...all.map((t) => t.episodes));
   sorted.forEach((t) => {
     const row = el("div", "ov-task-row");
-    if (t.preview) row.appendChild(previewBox(state.source, { task: t.task, ...t.preview }, { label: false }));
+    // first grid column is always present so the name / bar / count columns line up across rows
+    row.appendChild(t.preview ? previewBox(state.source, { task: t.task, ...t.preview }, { label: false }) : el("div", "t-nopv"));
     const name = el("div", "t-name", t.task);
     if (t.prompt) name.appendChild(el("div", "t-prompt", t.prompt));   // webbed datasets carry a language prompt
     if (t.tags && t.tags.length) { const tg = el("div", "t-tags"); t.tags.forEach((x) => tg.appendChild(el("span", "t-tag", x))); name.appendChild(tg); }
@@ -1024,7 +1025,7 @@ function renderTaskList() {
     const hrs = el("div", "t-hours", "…");
     hrs.dataset.task = t.task;
     row.appendChild(hrs);
-    row.appendChild(taskWhenCell(t));
+    // date column removed (user, 2026-10-31); taskWhenCell stays for the Collected sort tooltip code paths
     if (canFilterByTeacher) {
       const who = taskTeacherNames(t.task);
       if (who.all.length) row.title = `teleoperated by ${who.all.join(", ")}`;
