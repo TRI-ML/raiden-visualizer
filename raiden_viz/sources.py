@@ -107,9 +107,9 @@ def poster_name(clip_name: str) -> str:
     return clip_name[:-4] + ".jpg" if clip_name.endswith(".mp4") else clip_name + ".jpg"
 
 
-# Blob key of the sampled stats pass. Bump when the pass gains fields (v2: "summary"): old blobs are then
+# Blob key of the sampled stats pass. Bump when the pass gains fields (v2: "summary", v3: "embodiments"): old blobs are then
 # ignored by _swr/_swr_peek's persisted read and recomputed by the next warm / background build.
-STATS_KEY = "stats_v2"
+STATS_KEY = "stats_v3"
 
 
 def _median(xs):
@@ -118,6 +118,15 @@ def _median(xs):
         return None
     m = len(xs) // 2
     return xs[m] if len(xs) % 2 else (xs[m - 1] + xs[m]) / 2
+
+
+# LeRobot info.json robot_type → readable embodiment label (unknown values show as is)
+EMBODIMENT_LABEL = {"yam": "YAM", "bi_yam_follower": "YAM", "yam_bimanual": "YAM", "arx": "ARX", "franka": "Franka",
+                    "hand": "Hand"}
+
+
+def embodiments(robot_types) -> list:
+    return sorted({EMBODIMENT_LABEL.get(str(r).lower(), str(r)) for r in robot_types if r})
 
 
 def summarize(episodes: list, total: int, tasks: list) -> dict:
@@ -138,6 +147,7 @@ def summarize(episodes: list, total: int, tasks: list) -> dict:
         "episodes_per_task_median": _median([t.get("episodes") or 0 for t in tasks]) if tasks else None,
         "unique_tasks": len(tasks) if tasks else None,
         "annotated_episodes": sum(1 for a in ann if a) if any(a is not None for a in ann) else None,
+        "embodiments": embodiments(e.get("robot_type") for e in episodes),   # [] when the records carry none
     }
 
 
@@ -1130,7 +1140,9 @@ class LeRobotSource(Source):
     def stats(self, full: bool = False, wait: bool = True) -> dict:
         # Every episode's record is in the source index already: no per-episode work,
         # no sampling, nothing to wait for.
-        eps = list(self.source_index()["stats"])
+        idx = self.source_index()
+        rt = (idx.get("info") or {}).get("robot_type")
+        eps = [{**e, "robot_type": rt} if rt else e for e in idx["stats"]]
         total = len(eps)
         if not full and total > self.STATS_MAX:          # keep the chart payload bounded
             step = max(1, total // self.STATS_MAX)
@@ -1485,6 +1497,7 @@ class LeRobotSource(Source):
             "status": row.get("status"), "station": None, "teacher": None, "control": None,
             "timestamp": None,
             "has_annotations": None,  # would require reading each episode's data parquet
+            "robot_type": info.get("robot_type"),
         }
 
 

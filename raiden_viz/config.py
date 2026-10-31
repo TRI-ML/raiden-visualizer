@@ -17,33 +17,35 @@ AWS_REGION = os.environ.get("RAIDEN_AWS_REGION", "us-west-2")
 #   lerobot: <prefix>/<task>[/<subdir>]/{meta,data,videos}  (LeRobot v3.0: packed parquet + video)
 # origin: "tri" = collected at TRI, "open" = public open-source dataset, "purchased" = bought from a vendor
 # (shown as a chip on the catalog cards and the dataset page; user, 2026-10-31).
+# embodiments: robots in the set, shown as pills; when absent (worldengine) they are derived from the LeRobot
+# info.json robot_type values and persisted in the stats summary (sources.EMBODIMENT_LABEL maps them).
 SOURCES = [
-    {"id": "raiden", "origin": "tri", "label": "Raiden", "kind": "raiden", "bucket": S3_BUCKET, "prefix": S3_PREFIX},
-    {"id": "yam", "origin": "open", "label": "XDOF", "kind": "yam", "bucket": S3_BUCKET,
+    {"id": "raiden", "origin": "tri", "embodiments": ["YAM"], "label": "Raiden", "kind": "raiden", "bucket": S3_BUCKET, "prefix": S3_PREFIX},
+    {"id": "yam", "origin": "open", "embodiments": ["YAM"], "label": "XDOF", "kind": "yam", "bucket": S3_BUCKET,
      "prefix": "yam_raw/2026_03_30_zed", "mcap_name": "output.mcap"},
     # YAM teleop recorded on the russet station, uploaded from ~/data/raw. Same
     # raiden .svo2 layout (metadata.json + cameras/*.svo2 + robot_data.npz), so it
     # uses the raiden adapter.
-    {"id": "yam_russet", "origin": "tri", "label": "YAM (russet)", "kind": "raiden", "bucket": S3_BUCKET, "prefix": "yam_datasets/raw"},
+    {"id": "yam_russet", "origin": "tri", "embodiments": ["YAM"], "label": "YAM (russet)", "kind": "raiden", "bucket": S3_BUCKET, "prefix": "yam_datasets/raw"},
     # rfm_rl policy ROLLOUTS recorded on russet (rfm_rl_rollout). Identical
     # raiden .svo2 layout (metadata.json + cameras/*.svo2 + robot_data.npz);
     # metadata.json carries an extra rollout_info block that the raiden adapter
     # ignores. See raiden-rfm-flow-policy work.
-    {"id": "rollouts", "origin": "tri", "label": "Raiden Rollouts", "kind": "raiden", "bucket": S3_BUCKET, "prefix": "raiden_datasets/rollouts"},
+    {"id": "rollouts", "origin": "tri", "embodiments": ["YAM"], "label": "Raiden Rollouts", "kind": "raiden", "bucket": S3_BUCKET, "prefix": "raiden_datasets/rollouts"},
     # ABC-130k: the full open-source YAM dataset (xdof/Amazon). Same Foxglove-MCAP
     # format as the yam source but with episode.mcap files, newer topic names
     # (/<cam>, -state) and H.265 video — all handled by the yam adapter/decoder.
-    {"id": "abc130k", "origin": "open", "label": "ABC-130k (train)", "kind": "yam", "bucket": S3_BUCKET,
+    {"id": "abc130k", "origin": "open", "embodiments": ["YAM"], "label": "ABC-130k (train)", "kind": "yam", "bucket": S3_BUCKET,
      "prefix": "vla_foundry_datasets_test/raw_datasets_bot/abc-130k/data/train", "mcap_name": "episode.mcap"},
     # The public yam_public/ABC-130k mirror carries a val split (same episode.mcap
     # layout + content as the train mirror above, 189 tasks) that our train-only
     # source doesn't expose. Same yam adapter.
-    {"id": "abc130k_val", "origin": "open", "label": "ABC-130k (val)", "kind": "yam", "bucket": S3_BUCKET,
+    {"id": "abc130k_val", "origin": "open", "embodiments": ["YAM"], "label": "ABC-130k (val)", "kind": "yam", "bucket": S3_BUCKET,
      "prefix": "yam_public/ABC-130k/data/val", "mcap_name": "episode.mcap"},
     # The xdof VENDOR bucket copy of the zed collection — carries inline
     # /subtask-annotation labels (which the tri-ml mirror lacks). Readable only via
     # the manip-cluster SSO profile (see BUCKET_PROFILES).
-    {"id": "xdof_zed", "origin": "purchased", "label": "YAM (xdof zed)", "kind": "yam", "bucket": "xdof-yam-data",
+    {"id": "xdof_zed", "origin": "purchased", "embodiments": ["YAM"], "label": "YAM (xdof zed)", "kind": "yam", "bucket": "xdof-yam-data",
      "prefix": "2026_03_30_zed", "mcap_name": "output.mcap", "requires_access": True,
      # Per-episode sidecar JSON (camera intrinsics/distortion + episode fields) that
      # ships alongside the MCAPs under this prefix, keyed by the episode uuid. The
@@ -60,7 +62,7 @@ SOURCES = [
     # (meta/data/videos directly under it, no per-task subfolders), ~32k episodes
     # across 34 internal tasks. Handled by the single-root lerobot adapter, which
     # groups episodes by their dataset task label. 3 cams (left/right/top), AV1.
-    {"id": "molmoact2_yam", "origin": "open", "label": "MolmoAct2 Bimanual YAM", "kind": "lerobot_single",
+    {"id": "molmoact2_yam", "origin": "open", "embodiments": ["YAM"], "label": "MolmoAct2 Bimanual YAM", "kind": "lerobot_single",
      "bucket": S3_BUCKET, "prefix": "yam_public/MolmoAct2-BimanualYAM"},
     # Isaac sim datasets from raiden_sim2real (scripted experts on the YAM twin). Each
     # dataset folder s3://tri-yam/sim_datasets/<name>/ holds the source h5 + dataset
@@ -70,7 +72,7 @@ SOURCES = [
     # ONE EPISODE PER VIDEO FILE — so the adapter's stream-copy fast path applies and
     # no episode is ever transcoded. Folders without a lerobot/ subdir (part files that
     # keep only their card) are skipped by list_tasks.
-    {"id": "yam_sim", "origin": "tri", "label": "YAM Sim (Isaac twin)", "kind": "lerobot",
+    {"id": "yam_sim", "origin": "tri", "embodiments": ["YAM"], "label": "YAM Sim (Isaac twin)", "kind": "lerobot",
      "bucket": "tri-yam", "prefix": "sim_datasets", "subdir": "lerobot"},
 ]
 
@@ -86,7 +88,7 @@ WEBBED_DATASETS = [
     "kitchen_full_no_put_plate", "kitchen_rack_combo", "kitchen_put_spoon", "stack_cup_neural_light",
     "clean_up_table_V2_neural_light_1245", "organize_the_table_fork_spoon_merged",
 ]
-SOURCES.append({"id": "webbed", "origin": "open", "label": "YAM webbed (UW, Ge)", "kind": "webbed", "bucket": S3_BUCKET,
+SOURCES.append({"id": "webbed", "origin": "open", "embodiments": ["YAM"], "label": "YAM webbed (UW, Ge)", "kind": "webbed", "bucket": S3_BUCKET,
                 "prefix": "geyan/anydata/cv_webbed/videos", "split": "split_all__IKDLA_48",
                 "datasets": [f"{n}_seg48" for n in WEBBED_DATASETS]})
 

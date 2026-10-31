@@ -270,6 +270,8 @@ class CatalogBuilder:
                 "total_episodes_scanned": st.get("total_episodes"),
                 "sampled": st.get("sampled", False),
                 "total_hours": total_hours,
+                # the config list wins; else what the stats pass derived from the LeRobot robot_type values
+                "embodiments": src.spec.get("embodiments") or (st.get("summary") or {}).get("embodiments") or [],
                 # min/max are bounds of the SCANNED episodes, so under sampling
                 # they under-state the true range (the longest episode may not have
                 # been read). Nothing renders them today; `sampled` says which case

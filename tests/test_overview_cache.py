@@ -105,7 +105,7 @@ def test_stats_route_never_computes_on_request(src, monkeypatch):
     assert src.stats(wait=False) is None
     src._swr_state[sources.STATS_KEY]["thread"].join(5)
     st = src.stats(wait=False)
-    assert st["num_episodes"] == 6 and sources.STATS_KEY == "stats_v2"
+    assert st["num_episodes"] == 6 and sources.STATS_KEY == "stats_v3"
     s = st["summary"]
     assert s["hours"] == 0.1 and s["estimated"] is False and s["median_duration_s"] == 60.0
     assert s["unique_tasks"] == st["summary"]["unique_tasks"] >= 1 and s["episodes_per_task_median"] >= 1
@@ -116,5 +116,12 @@ def test_summarize_extrapolates_hours_and_hides_unknown_annotations():
     eps = [{"duration_s": 30.0, "has_annotations": None}, {"duration_s": 90.0, "has_annotations": None}]
     s = sources.summarize(eps, 100, [{"episodes": 60}, {"episodes": 40}])
     assert s == {"hours": round(60.0 * 100 / 3600, 1), "estimated": True, "median_duration_s": 60.0,
-                 "episodes_per_task_median": 50, "unique_tasks": 2, "annotated_episodes": None}
+                 "episodes_per_task_median": 50, "unique_tasks": 2, "annotated_episodes": None, "embodiments": []}
     assert sources.summarize([], 0, [])["hours"] is None
+
+
+def test_embodiments_map_robot_types_to_labels_and_dedupe():
+    eps = [{"robot_type": "yam"}, {"robot_type": "arx"}, {"robot_type": "bi_yam_follower"}, {"robot_type": None}, {}]
+    assert sources.summarize(eps, 5, [])["embodiments"] == ["ARX", "YAM"]
+    assert sources.embodiments(["franka", "weird_bot"]) == ["Franka", "weird_bot"]
+    assert sources.STATS_KEY == "stats_v3"
