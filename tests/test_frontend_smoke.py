@@ -115,11 +115,16 @@ def test_env_segment_and_activity_panels(browser, site):
     assert page.locator(".teacher-card").is_visible()
     page.screenshot(path=str(SHOTS / "rv_header_dev.png"))
     page.close()
+    # no query, no stored choice: dev is the default off the hosted prod host; clicking Prod persists and reloads lean
     page = _open(browser, site)
     page.wait_for_selector(".cat-card")
-    assert page.evaluate("document.documentElement.dataset.env") == "local"
-    assert page.locator('#env-seg [data-env="prod"]').is_disabled()
+    assert page.evaluate("document.documentElement.dataset.env") == "dev"
     assert page.locator(".teacher-card").is_visible()
+    page.click('#env-seg [data-env="prod"]')
+    page.wait_for_selector(".cat-card")
+    assert page.evaluate("document.documentElement.dataset.env") == "prod"
+    assert page.locator(".teacher-card").is_hidden()
+    page.evaluate("localStorage.removeItem('rv_env')")
     page.close()
 
 

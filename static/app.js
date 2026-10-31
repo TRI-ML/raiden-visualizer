@@ -52,26 +52,24 @@ function initTheme() {
   $("#theme-seg").onclick = (ev) => { const b = ev.target.closest("button"); if (b) applyTheme(b.dataset.theme); };
 }
 
-/* ---------------- Site (dev / stage / prod) ---------------- */
-// Read off the hostname: dev. / stage. prefixes of the hosted site, bare host = prod, anything else (laptop,
-// aws-anthony-1) = local. `?env=` overrides for tests. CSS keys off html[data-env] to hide the fleet-wide
-// activity panels (upload calendar, teleop per day) on dev and local; the Dev / Prod segment links across hosts.
+/* ---------------- Feature set (dev / prod) ---------------- */
+// Dev shows every panel; Prod is the lean set (no fleet activity panels, calibration, Preview, Filter or
+// recorded-time chart — CSS keys off html[data-env]). The segment toggles the mode on THIS site (user, 2026-10-31:
+// "dev and prod toggle between the features"); it is remembered in localStorage. Default: the hosted prod site
+// starts in prod, everything else in dev. `?env=` overrides for tests.
 const HOSTED = "yam-data-visualizer.robotics-apps.tri.global";
 const ENV = new URLSearchParams(location.search).get("env")
-  || (location.hostname === HOSTED ? "prod" : location.hostname === `dev.${HOSTED}` ? "dev" : location.hostname === `stage.${HOSTED}` ? "stage" : "local");
+  || localStorage.getItem("rv_env")
+  || (location.hostname === HOSTED ? "prod" : "dev");
 function initEnv() {
   document.documentElement.dataset.env = ENV;
   const seg = $("#env-seg");
-  seg.querySelectorAll("button").forEach((b) => {
-    b.classList.toggle("active", b.dataset.env === ENV);
-    if (b.dataset.env === "stage") b.classList.toggle("hidden", ENV !== "stage");
-    b.disabled = ENV === "local";
-  });
-  if (ENV === "local") seg.title = "Local copy: not one of the hosted sites";
+  seg.querySelectorAll("button").forEach((b) => b.classList.toggle("active", b.dataset.env === ENV));
   seg.onclick = (ev) => {
     const b = ev.target.closest("button");
-    if (!b || b.disabled || b.dataset.env === ENV) return;
-    location.href = `https://${b.dataset.env === "prod" ? "" : b.dataset.env + "."}${HOSTED}/${location.hash}`;
+    if (!b || b.dataset.env === ENV) return;
+    localStorage.setItem("rv_env", b.dataset.env);
+    location.reload();   // the catalog's activity fetches and the CSS both read the mode at load
   };
 }
 
@@ -533,7 +531,7 @@ async function renderCatalog() {
   // Stash the cards for the comparison bar chart (redrawn on metric toggle / resize).
   state.catalog = data.datasets;
   drawCatalogBars(state.catMetric || "episodes");
-  if (ENV === "dev" || ENV === "local") {   // the activity panels are hidden on prod / stage (see initEnv)
+  if (ENV === "dev") {   // the activity panels belong to the dev feature set (see initEnv)
     loadContrib();   // upload-activity calendar (independent /api/contrib scan)
     loadTeachers();  // raiden teleop-per-day-by-teacher bars (/api/raiden_teachers)
   }
