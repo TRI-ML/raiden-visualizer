@@ -95,3 +95,26 @@ def test_the_route_still_reports_region(monkeypatch):
     r = TestClient(app_module.app).get("/api/sources/c/overview")
     assert r.status_code == 200
     assert r.json()["region"] == config.AWS_REGION
+
+
+def test_stats_route_never_computes_on_request(src, monkeypatch):
+    """wait=False returns None (and starts ONE background build) until the pass is persisted; then the blob."""
+    monkeypatch.setattr(sources.Source, "episode_stat", lambda self, t, e: {"task": t, "episode": e, "duration_s": 60.0,
+                                                                            "has_annotations": e.endswith("1")})
+    monkeypatch.setattr(sources.Source, "_stat_head", lambda self, t, e: None)
+    assert src.stats(wait=False) is None
+    src._swr_state[sources.STATS_KEY]["thread"].join(5)
+    st = src.stats(wait=False)
+    assert st["num_episodes"] == 6 and sources.STATS_KEY == "stats_v2"
+    s = st["summary"]
+    assert s["hours"] == 0.1 and s["estimated"] is False and s["median_duration_s"] == 60.0
+    assert s["unique_tasks"] == st["summary"]["unique_tasks"] >= 1 and s["episodes_per_task_median"] >= 1
+    assert s["annotated_episodes"] >= 1
+
+
+def test_summarize_extrapolates_hours_and_hides_unknown_annotations():
+    eps = [{"duration_s": 30.0, "has_annotations": None}, {"duration_s": 90.0, "has_annotations": None}]
+    s = sources.summarize(eps, 100, [{"episodes": 60}, {"episodes": 40}])
+    assert s == {"hours": round(60.0 * 100 / 3600, 1), "estimated": True, "median_duration_s": 60.0,
+                 "episodes_per_task_median": 50, "unique_tasks": 2, "annotated_episodes": None}
+    assert sources.summarize([], 0, [])["hours"] is None

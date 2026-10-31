@@ -22,3 +22,10 @@ def test_no_sources_dropped_by_default():
 
     ids = {s["id"] for s in config.SOURCES}
     assert "xdof_zed" in ids
+
+
+def test_every_source_declares_its_origin():
+    """tri = collected at TRI, open = public dataset, purchased = vendor; the chips on the cards read this."""
+    from raiden_viz import config
+    assert {s.get("origin") for s in config.SOURCES} <= {"tri", "open", "purchased"}
+    assert all(s.get("origin") for s in config.SOURCES), [s["id"] for s in config.SOURCES if not s.get("origin")]

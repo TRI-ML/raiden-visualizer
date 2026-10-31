@@ -145,7 +145,7 @@ def list_sources():
     """The datasets this viewer can browse. Only sources actually readable on
     this host are listed (access-gated ones auto-hide where creds are missing)."""
     available = sources.get_sources(config.SOURCES)  # access-filtered registry
-    return {"sources": [{"id": s["id"], "label": s["label"], "kind": s["kind"]}
+    return {"sources": [{"id": s["id"], "label": s["label"], "kind": s["kind"], "origin": s.get("origin")}
                         for s in config.SOURCES if s["id"] in available]}
 
 
@@ -354,10 +354,13 @@ def task_teachers(sid: str):
 
 @app.get("/api/sources/{sid}/stats")
 def stats(sid: str, full: bool = Query(False)):
-    """Per-episode stat records for the charts. ``full=true`` reads every episode
-    synchronously (small sources only); for large sources use the scan endpoints,
-    which stream progress."""
-    return _src(sid).stats(full=full)
+    """Per-episode stat records for the charts + the summary tiles. The default pass is served from the
+    persisted store only (the warm / a background build fills it); until then ``{"computing": true}`` and
+    the page shows "not computed yet". ``full=true`` reads every episode synchronously (small sources only)."""
+    st = _src(sid).stats(full=full, wait=False)
+    if st is None:
+        return {"computing": True, "episodes": [], "summary": None, "num_episodes": 0, "total_episodes": None}
+    return st
 
 
 @app.post("/api/sources/{sid}/scan")

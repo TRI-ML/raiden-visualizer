@@ -223,6 +223,7 @@ select option { background: var(--bg-elev); color: var(--text); }
 #episode-list li.ep-li-more { color: var(--text-faint); font-style: italic; cursor: default; text-align: center; }
 
 .side-foot { font-size: var(--fs-small); color: var(--text-faint); border-top: 1px solid var(--border-soft); padding-top: 10px; }
+.side-foot #s3-root { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ---------- Main ---------- */
 #main { flex: 1; height: 100vh; overflow-y: auto; }
@@ -230,7 +231,9 @@ select option { background: var(--bg-elev); color: var(--text); }
 /* Overview / landing page */
 #overview-view { padding: 26px 30px 60px; max-width: 1100px; margin: 0 auto; }
 #catalog-view { padding: 26px 30px 60px; max-width: 1240px; margin: 0 auto; }
-.ov-header { margin-bottom: 22px; }
+.ov-header { margin-bottom: 22px; display: flex; align-items: center; gap: 10px; }
+.cat-origin.open { color: var(--good); }
+.cat-origin.purchased { color: var(--warn); }
 .ov-header h1 { font-size: var(--fs-title); letter-spacing: -0.02em; }
 .ov-header p { margin: 6px 0 0; }
 .ov-path-card { margin-bottom: 18px; }
