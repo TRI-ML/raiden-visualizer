@@ -1121,6 +1121,11 @@ async function renderAnalytics(taskOrder) {
     return;
   }
   if (forSource !== state.source) return;  // user switched away; drop stale result
+  // the persisted summary is loading / being built in the background: poll instead of leaving "not computed yet"
+  if (stats.computing) {
+    clearTimeout(state._statsTimer);
+    state._statsTimer = setTimeout(() => { if (state.source === forSource) renderAnalytics(taskOrder); }, 4000);
+  }
   const eps = (stats.episodes || []).filter((e) => e.duration_s != null);
   const colors = taskColors(taskOrder || []);
 
