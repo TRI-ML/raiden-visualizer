@@ -100,22 +100,26 @@ def concat_rgb(parts: list[Path], out_mp4: Path, fps: int = FPS) -> None:
         lst.unlink(missing_ok=True)
 
 
-def depth_to_mp4(depth_mm: np.ndarray, out_mp4: Path, fps: int = FPS) -> None:
-    """Turbo-colormap a (F,H,W) millimetre depth stack into an mp4. Range = [min, p99] of the valid pixels of
-    the whole episode so colours stay stable across shards; zeros (no return) are black."""
+def depth_to_mp4(depth_mm: np.ndarray | list[np.ndarray], out_mp4: Path, fps: int = FPS) -> None:
+    """Turbo-colormap a (F,H,W) millimetre depth stack (or a list of per-shard stacks, encoded in order without
+    concatenating them) into an mp4. Range = [min, p99] of the valid pixels of the whole episode so colours stay
+    stable across shards; zeros (no return) are black."""
     import cv2
 
-    valid = depth_mm[depth_mm > 0]
+    chunks = [depth_mm] if isinstance(depth_mm, np.ndarray) else depth_mm
+    # range from every 8th frame: a full `depth[depth > 0]` copy of a float32 episode is >1 GB by itself
+    sample = np.concatenate([c[::8].ravel() for c in chunks])
+    valid = sample[sample > 0]
     lo = float(valid.min()) if valid.size else 0.0
     hi = float(np.percentile(valid, 99)) if valid.size else 1.0
     hi = hi if hi > lo else lo + 1.0
-    f, h, w = depth_mm.shape
+    _, h, w = chunks[0].shape
     cmd = ["ffmpeg", "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "bgr24", "-s", f"{w}x{h}",
            "-r", str(fps), "-i", "-", "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p",
            "-movflags", "+faststart", "-f", "mp4", str(out_mp4)]
     proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
     try:
-        for frame in depth_mm:
+        for frame in (fr for chunk in chunks for fr in chunk):
             u8 = np.clip((frame - lo) / (hi - lo) * 255.0, 0, 255).astype(np.uint8)
             bgr = cv2.applyColorMap(u8, cv2.COLORMAP_TURBO)
             bgr[frame <= 0] = 0

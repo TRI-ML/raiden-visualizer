@@ -30,7 +30,6 @@ from pathlib import Path
 
 import logging
 
-import numpy as np
 
 from . import cache, calib_overlay, config, fk, lerobot, previews, robot_data, s3, svo, webbed, yam
 
@@ -1580,28 +1579,28 @@ class WebbedSource(Source):
         cache.evict(headroom_gb=1.0)
         tmp = Path(tempfile.mkdtemp(prefix="webbed_", dir=config.CACHE_DIR))
         try:
-            per_cam = {c: [] for c in cams}
             jobs = [(c, s) for c in cams for s in shards]
             key_prefix = f"{self._split_prefix(task)}/{webbed.seq_key(episode)}"
             with ThreadPoolExecutor(max_workers=8) as pool:
-                paths = list(pool.map(lambda cs: self._fetch_shard(key_prefix, cs[0], cs[1], tmp), jobs))
-            for (c, s), p in zip(jobs, paths):
-                per_cam[c].append(webbed.read_shard(p, tmp / c / s[:-4]))
+                paths = dict(zip(jobs, pool.map(lambda cs: self._fetch_shard(key_prefix, cs[0], cs[1], tmp), jobs)))
             robot, prompt, cameras = None, None, []
             for c in cams:
-                rgb = [sh["rgb"] for sh in per_cam[c] if sh["rgb"] is not None]
+                # one camera's shards in memory at a time: depth is float32, >1 GB per camera for a 1300-frame
+                # episode, and holding every camera plus a concatenated copy OOM-killed the 8 GB hosted task
+                shs = [webbed.read_shard(paths[(c, s)], tmp / c / s[:-4]) for s in shards]
+                rgb = [sh["rgb"] for sh in shs if sh["rgb"] is not None]
                 if rgb:
                     cache.get_or_create(f"{base}_{c}.mp4", lambda dst, _r=rgb: webbed.concat_rgb(_r, dst))
                 cameras.append({"name": c, "has_video": bool(rgb), "eyes": ["left"]})
-                depth = [sh["depth"] for sh in per_cam[c] if sh["depth"] is not None]
+                depth = [sh["depth"] for sh in shs if sh["depth"] is not None]
                 if depth:
-                    stack = np.concatenate(depth)
-                    cache.get_or_create(f"{base}_{c}_depth.mp4", lambda dst, _d=stack: webbed.depth_to_mp4(_d, dst))
+                    cache.get_or_create(f"{base}_{c}_depth.mp4", lambda dst, _d=depth: webbed.depth_to_mp4(_d, dst))
                     cameras.append({"name": f"{c}_depth", "has_video": True, "eyes": ["left"]})
                 if robot is None:
-                    lows = [sh["lowdim"] for sh in per_cam[c] if sh["lowdim"] is not None]
+                    lows = [sh["lowdim"] for sh in shs if sh["lowdim"] is not None]
                     robot = webbed.robot_summary(lows)
                     prompt = next((lo["language"] for lo in lows if lo.get("language")), None)
+                del shs, depth
             # rgb cameras first, depth tiles after them
             cameras.sort(key=lambda c: c["name"].endswith("_depth"))
             n = webbed.episode_frames(shards)

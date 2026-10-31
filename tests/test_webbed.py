@@ -92,3 +92,12 @@ def test_featured_episodes_are_a_stable_sample(tmp_path, monkeypatch):
     eps.extend(f"ep_{i:03d}" for i in range(22, 40))                   # now 40 of 20 recorded: re-picked
     second = src.featured_episodes("t")
     assert len(second) == 3 and json.loads((tmp_path / "featured_fake_t.json").read_text())["of"] == 40
+
+
+def test_depth_to_mp4_accepts_per_shard_chunks(tmp_path):
+    """_mine hands depth_to_mp4 the per-shard stacks instead of one concatenated copy (memory)."""
+    rng = np.random.default_rng(0)
+    depth = (rng.random((6, 16, 16)) * 2000).astype(np.float32)
+    out = tmp_path / "d.mp4"
+    webbed.depth_to_mp4([depth[:2], depth[2:]], out, fps=30)
+    assert out.stat().st_size > 0
