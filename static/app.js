@@ -33,6 +33,26 @@ const state = {
   filter: null,      // { records, coverage, active:{field->constraint}, scanning }
 };
 
+/* ---------------- Theme ---------------- */
+// Dark/light palette tokens live in style.css; the canvases read them here so charts follow the theme.
+const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+function applyTheme(t) {
+  document.documentElement.dataset.theme = t;
+  try { localStorage.setItem("rv_theme", t); } catch (_) {}
+  const b = $("#theme-toggle"); if (b) b.textContent = t === "light" ? "☾" : "☀";
+  // canvases paint their colours at draw time: redraw whatever is on screen
+  if (state.catalog && !state.source) drawCatalogBars(state.catMetric || "episodes");
+  if (state.contrib && !state.source) drawContrib(state.contribMetric || "bytes");
+  if (state.teachers && !state.source) drawTeachers(state.teacherMetric || "episodes");
+  if (state.source && !state.episode && state.overviewEps) { drawHistogram(state.overviewEps); drawScatter(state.overviewEps, state.overviewColors || {}); }
+  if (state.detail && state.episode) renderPlots(state.detail.robot);
+}
+function initTheme() {
+  const b = $("#theme-toggle");
+  const cur = document.documentElement.dataset.theme || "dark";
+  if (b) { b.textContent = cur === "light" ? "☾" : "☀"; b.onclick = () => applyTheme(document.documentElement.dataset.theme === "light" ? "dark" : "light"); }
+}
+
 async function api(path) {
   const r = await fetch(path);
   if (!r.ok) {
@@ -88,6 +108,8 @@ async function init() {
   });
   $("#calib-head").addEventListener("click", () => $(".calib-card").classList.toggle("collapsed"));
   $("#brand-home").addEventListener("click", showCatalog);
+  $("#brand-text").addEventListener("click", showCatalog);
+  initTheme();
   // Catalog comparison-chart metric toggle (Episodes / Hours / Tasks).
   $("#cat-metric-toggle").addEventListener("click", (ev) => {
     const b = ev.target.closest("button");
@@ -248,7 +270,9 @@ function sourceKind() {
 // sources transcode .svo2; everything else just says it is preparing the clip.
 function decodeHint() {
   const k = sourceKind();
-  return (k === "raiden" || k === "yam") ? "first load transcodes .svo2 → mp4" : "";
+  if (k === "raiden" || k === "yam") return "first load transcodes .svo2 → mp4";
+  if (k === "webbed") return "first load decodes the episode's shards";
+  return "";
 }
 
 // One overlay for every video tile: thin spinner + a short state word. States:
@@ -520,7 +544,7 @@ function drawCatalogBars(metric) {
   canvas.style.height = (rows.length * rowH + padTop + padBot) + "px";
   const { ctx, W, H } = setupCanvas("cat-bar-canvas");
   if (!rows.length) {
-    ctx.fillStyle = "#626875"; ctx.font = "12px 'Inter', sans-serif"; ctx.textAlign = "left";
+    ctx.fillStyle = cssVar("--text-faint"); ctx.font = "12px 'Inter', sans-serif"; ctx.textAlign = "left";
     ctx.fillText("computing…", 8, 20);
     return;
   }
@@ -537,9 +561,9 @@ function drawCatalogBars(metric) {
   while (tickMax < maxV) { tickMax += step; ticks.push(tickMax); }
   ticks.forEach((v) => {
     const x = x0 + plotW * (v / tickMax);
-    ctx.strokeStyle = "rgba(255,255,255,0.06)";
+    ctx.strokeStyle = cssVar("--grid-line");
     ctx.beginPath(); ctx.moveTo(x, padTop); ctx.lineTo(x, H - padBot + 4); ctx.stroke();
-    ctx.fillStyle = "#626875"; ctx.textAlign = "center";
+    ctx.fillStyle = cssVar("--text-faint"); ctx.textAlign = "center";
     ctx.fillText(m.fmt(v), x, H - padBot + 18);
   });
   // bars + labels
@@ -548,13 +572,13 @@ function drawCatalogBars(metric) {
     const bh = rowH - 10;
     const bw = Math.max(2, plotW * (r.v / tickMax));
     // dataset label (right-aligned, truncated by clip)
-    ctx.fillStyle = "#e7e9ee"; ctx.font = "12px 'Inter', sans-serif"; ctx.textAlign = "right";
+    ctx.fillStyle = cssVar("--text"); ctx.font = "12px 'Inter', sans-serif"; ctx.textAlign = "right";
     ctx.fillText(r.label.length > 24 ? r.label.slice(0, 23) + "…" : r.label, labelW - 12, y + bh / 2 + 4);
     // bar
-    ctx.fillStyle = "#6ea8fe";
+    ctx.fillStyle = cssVar("--accent");
     roundRect(ctx, x0, y + 2, bw, bh, 3); ctx.fill();
     // value at bar end
-    ctx.fillStyle = "#9aa0ad"; ctx.font = "11px 'JetBrains Mono', monospace"; ctx.textAlign = "left";
+    ctx.fillStyle = cssVar("--text-dim"); ctx.font = "11px 'JetBrains Mono', monospace"; ctx.textAlign = "left";
     ctx.fillText(m.fmt(r.v), x0 + bw + 6, y + bh / 2 + 4);
   });
 }
@@ -795,7 +819,7 @@ function drawTeachers(metric) {
   const summary = $("#teacher-summary");
   const { ctx, W, H } = setupCanvas("teacher-canvas");
   if (!first || !last) {
-    ctx.fillStyle = "#626875"; ctx.font = "12px 'Inter', sans-serif"; ctx.textAlign = "left";
+    ctx.fillStyle = cssVar("--text-faint"); ctx.font = "12px 'Inter', sans-serif"; ctx.textAlign = "left";
     ctx.fillText(data.building ? "Scanning raiden metadata…" : "No raiden teleop found.", 8, 22);
     if (summary) summary.textContent = data.building ? `${data.building} scanning…` : "";
     return;
@@ -828,9 +852,9 @@ function drawTeachers(metric) {
   while (tickMax < maxV) { tickMax += step; ticks.push(tickMax); }
   ticks.forEach((v) => {
     const y = padTop + plotH * (1 - v / tickMax);
-    ctx.strokeStyle = "rgba(255,255,255,0.06)";
+    ctx.strokeStyle = cssVar("--grid-line");
     ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(W - padR, y); ctx.stroke();
-    ctx.fillStyle = "#626875"; ctx.textAlign = "right";
+    ctx.fillStyle = cssVar("--text-faint"); ctx.textAlign = "right";
     ctx.fillText(m.fmt(v), padL - 6, y + 3);
   });
   // bars
@@ -841,11 +865,11 @@ function drawTeachers(metric) {
     const x = padL + i * slot + (slot - bw) / 2;
     const bh = plotH * (d.v / tickMax);
     const y = padTop + plotH - bh;
-    ctx.fillStyle = "#6ea8fe";
+    ctx.fillStyle = cssVar("--accent");
     roundRect(ctx, x, y, bw, bh, 2); ctx.fill();
   });
   // sparse x date labels (first, last, and mid) to avoid clutter
-  ctx.fillStyle = "#626875"; ctx.font = "9px 'JetBrains Mono', monospace"; ctx.textAlign = "center";
+  ctx.fillStyle = cssVar("--text-faint"); ctx.font = "9px 'JetBrains Mono', monospace"; ctx.textAlign = "center";
   const idxs = n <= 1 ? [0] : [0, Math.floor((n - 1) / 2), n - 1];
   [...new Set(idxs)].forEach((i) => {
     const x = padL + i * slot + slot / 2;
@@ -924,6 +948,18 @@ const TASK_SORTS = {
   },
 };
 
+// Tag chips above the Tasks list (sources whose tasks carry tags, e.g. webbed): one click narrows the list.
+function renderTagFilter(list, tags) {
+  let box = $("#ov-tag-filter");
+  if (!tags.length) { if (box) box.remove(); state.taskTag = null; return; }
+  if (!box) { box = el("div", "tag-filter"); box.id = "ov-tag-filter"; list.parentNode.insertBefore(box, list); }
+  box.innerHTML = "";
+  ["all", ...tags].forEach((tag) => {
+    const chip = el("button", "facet-chip" + ((state.taskTag || "all") === tag ? " on" : ""), tag);
+    chip.onclick = () => { state.taskTag = tag === "all" ? null : tag; renderTaskList(); };
+    box.appendChild(chip);
+  });
+}
 function renderTaskList() {
   const all = state.overviewTasks || [];
   const list = $("#ov-task-list");
@@ -941,7 +977,10 @@ function renderTaskList() {
   const teacherOnly = canFilterByTeacher && state.taskWho === "teachers";
   const tasks = teacherOnly ? all.filter((t) => taskTeacherNames(t.task).robot.length) : all;
 
-  const sorted = tasks.slice().sort(TASK_SORTS[mode] || TASK_SORTS.episodes);
+  const allTags = [...new Set(all.flatMap((t) => t.tags || []))].sort();
+  renderTagFilter(list, allTags);
+  const tagged = state.taskTag ? tasks.filter((t) => (t.tags || []).includes(state.taskTag)) : tasks;
+  const sorted = tagged.slice().sort(TASK_SORTS[mode] || TASK_SORTS.episodes);
   $("#ov-task-hint").textContent = teacherOnly
     ? `${tasks.length} of ${state.numTasks ?? all.length}`
     : `${state.numTasks ?? all.length} total`;
@@ -953,6 +992,7 @@ function renderTaskList() {
     if (t.preview) row.appendChild(previewBox(state.source, { task: t.task, ...t.preview }, { label: false }));
     const name = el("div", "t-name", t.task);
     if (t.prompt) name.appendChild(el("div", "t-prompt", t.prompt));   // webbed datasets carry a language prompt
+    if (t.tags && t.tags.length) { const tg = el("div", "t-tags"); t.tags.forEach((x) => tg.appendChild(el("span", "t-tag", x))); name.appendChild(tg); }
     row.appendChild(name);
     const bar = el("div", "t-bar");
     const fill = el("i");
@@ -1061,8 +1101,8 @@ async function renderAnalytics(taskOrder) {
   const colors = taskColors(taskOrder || []);
 
   updateHoursCard(eps, stats);
-  drawHistogram(eps);
-  drawScatter(eps, colors);
+  state.overviewEps = eps; drawHistogram(eps);
+  state.overviewColors = colors; drawScatter(eps, colors);
   renderPreview(stats.episodes || [], taskOrder || []);   // two looping episodes per dataset
 
   // Seed the episode filter from the same records the charts use. On small
@@ -1559,12 +1599,12 @@ function drawHistogram(eps) {
 
   // y gridlines + labels (counts)
   ctx.font = "10px 'JetBrains Mono', monospace";
-  ctx.fillStyle = "#626875";
+  ctx.fillStyle = cssVar("--text-faint");
   ctx.textAlign = "right";
   const yTicks = niceTicks(0, maxCount, 4);
   yTicks.forEach((v) => {
     const y = pad.t + plotH * (1 - v / (maxCount || 1));
-    ctx.strokeStyle = "rgba(255,255,255,0.06)";
+    ctx.strokeStyle = cssVar("--grid-line");
     ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(W - pad.r, y); ctx.stroke();
     ctx.fillText(String(v), pad.l - 5, y + 3);
   });
@@ -1577,7 +1617,7 @@ function drawHistogram(eps) {
     const h = plotH * (bins[i] / maxCount);
     const x = pad.l + i * bw;
     const y = pad.t + plotH - h;
-    ctx.fillStyle = "#6ea8fe";
+    ctx.fillStyle = cssVar("--accent");
     ctx.fillRect(x + gap / 2, y, bw - gap, h);
   }
 
@@ -1611,15 +1651,15 @@ function drawScatter(eps, colors) {
   ctx.textAlign = "right";
   niceTicks(0, yMax, 4).forEach((v) => {
     const y = Y(v);
-    ctx.strokeStyle = "rgba(255,255,255,0.06)";
+    ctx.strokeStyle = cssVar("--grid-line");
     ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(W - pad.r, y); ctx.stroke();
-    ctx.fillStyle = "#626875";
+    ctx.fillStyle = cssVar("--text-faint");
     ctx.fillText(niceDuration(v), pad.l - 5, y + 3);
   });
 
   // points
   pts.forEach((p) => {
-    ctx.fillStyle = colors[p.task] || "#6ea8fe";
+    ctx.fillStyle = colors[p.task] || cssVar("--accent");
     ctx.beginPath();
     ctx.arc(X(p.t), Y(p.y), 4, 0, Math.PI * 2);
     ctx.fill();
@@ -1724,8 +1764,11 @@ function renderEpisodeList() {
     li.appendChild(head);
     // Timestamp: from the metadata when we have it, else parsed out of the
     // episode's own name (raiden dirs are station_<ISO timestamp>).
-    const when = (f && f.timestamp) ? formatStamp(f.timestamp) : parseEpisodeName(ep).when;
-    if (when) li.appendChild(el("div", "ep-li-when mono", when));
+    const parsed = parseEpisodeName(ep);
+    const when = (f && f.timestamp) ? formatStamp(f.timestamp) : parsed.when;
+    // no timestamp (webbed / LeRobot): the readable episode name stands in, so the row is more than its index
+    const sub = when || (parsed.name !== ep ? parsed.name : "");
+    if (sub) li.appendChild(el("div", "ep-li-when mono", sub));
     li.onclick = () => selectEpisode(ep);
     list.appendChild(li);
   });
@@ -1770,6 +1813,8 @@ function parseEpisodeName(ep) {
   if (m) return { name: m[1], when: `${m[2]} · ${m[3]}:${m[4]}:${m[5]}` };
   const u = ep.match(/^episode_([0-9a-f]{8})/);
   if (u) return { name: `episode ${u[1]}`, when: null };
+  const w = ep.match(/episode_(\d+)$/);                     // webbed "chunk_000__episode_000003", LeRobot "episode_000003"
+  if (w) return { name: `episode ${parseInt(w[1], 10)}`, when: null };
   return { name: ep, when: null };
 }
 
@@ -2346,7 +2391,7 @@ function drawAllCursors(secs) {
   state.plots.forEach((p) => {
     p.ctx.clearRect(0, 0, p.W, p.H);
     const x = PLOT_PAD.l + frac * (p.W - PLOT_PAD.l - PLOT_PAD.r);
-    p.ctx.strokeStyle = "rgba(248,113,113,0.95)";
+    p.ctx.strokeStyle = cssVar("--bad");
     p.ctx.lineWidth = 1.5;
     p.ctx.beginPath();
     p.ctx.moveTo(x, 0);
@@ -2411,7 +2456,7 @@ function drawSeries(canvas, t, sig) {
 
   // zero baseline
   if (lo < 0 && hi > 0) {
-    ctx.strokeStyle = "rgba(255,255,255,0.08)";
+    ctx.strokeStyle = cssVar("--grid-line");
     ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(pad.l, y(0)); ctx.lineTo(W - pad.r, y(0)); ctx.stroke();
   }

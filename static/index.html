@@ -7,16 +7,18 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <script>(function(){var t=localStorage.getItem("rv_theme")||(matchMedia("(prefers-color-scheme: light)").matches?"light":"dark");document.documentElement.dataset.theme=t;})();</script>
   <link rel="stylesheet" href="/style.css" />
 </head>
 <body class="catalog-mode">
   <aside id="sidebar">
-    <div class="brand" id="brand-home" title="Dataset overview">
-      <div class="brand-mark"></div>
-      <div>
+    <div class="brand">
+      <div class="brand-mark" id="brand-home" title="All datasets" style="cursor:pointer"></div>
+      <div id="brand-text" title="All datasets" style="cursor:pointer">
         <div class="brand-title">YAM Datasets</div>
-        <div class="brand-sub">all datasets — click for overview</div>
+        <div class="brand-sub">dataset viewer</div>
       </div>
+      <button id="theme-toggle" class="theme-toggle" type="button" title="Switch light / dark" aria-label="Switch light / dark theme">◐</button>
     </div>
 
     <div class="search-wrap">
@@ -49,7 +51,7 @@
     <div id="catalog-view">
       <header class="ov-header">
         <h1>YAM Datasets</h1>
-        <p class="subtle">All datasets available in this viewer — counts, formats, and which carry subtask annotations. Click a dataset to explore its episodes.</p>
+        <p class="subtle">Every dataset this viewer can read. Click one to browse its tasks and episodes.</p>
       </header>
       <div class="cat-agg" id="cat-agg"></div>
 
@@ -119,7 +121,7 @@
     <div id="overview-view" class="hidden">
       <header class="ov-header">
         <h1>Dataset overview</h1>
-        <p class="subtle">Raw Raiden teleop episodes — video, metadata, and robot trajectories.</p>
+        <p class="subtle">Episodes, metadata and robot trajectories.</p>
       </header>
 
       <section class="card ov-path-card">
