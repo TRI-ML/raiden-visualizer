@@ -1034,7 +1034,7 @@ class LeRobotSource(Source):
 
     # ---- source index: everything the overview / stats / browse pages need ------
 
-    SOURCE_INDEX_V = 3   # v3: per-task preview (episode, camera, artifact names) + facts
+    SOURCE_INDEX_V = 4   # v3: per-task preview (episode, camera, artifact names) + facts; v4: robot_type on the stat records
 
     def _source_blob(self) -> str:
         return f"lerobot_source_{self.id}_v{self.SOURCE_INDEX_V}.json"
@@ -1140,9 +1140,7 @@ class LeRobotSource(Source):
     def stats(self, full: bool = False, wait: bool = True) -> dict:
         # Every episode's record is in the source index already: no per-episode work,
         # no sampling, nothing to wait for.
-        idx = self.source_index()
-        rt = (idx.get("info") or {}).get("robot_type")
-        eps = [{**e, "robot_type": rt} if rt else e for e in idx["stats"]]
+        eps = list(self.source_index()["stats"])   # episode_stat records, robot_type included since index v4
         total = len(eps)
         if not full and total > self.STATS_MAX:          # keep the chart payload bounded
             step = max(1, total // self.STATS_MAX)
