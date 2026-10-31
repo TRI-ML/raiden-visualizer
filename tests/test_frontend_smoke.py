@@ -18,8 +18,14 @@ STATIC = Path(__file__).resolve().parents[1] / "static"
 SHOTS = Path("/tmp")
 
 CATALOG = {"aggregate": {"num_datasets": 1, "total_episodes": 2, "total_tasks": 1, "total_hours": 0.1, "with_annotations": 0, "building": 0},
-           "datasets": [{"id": "demo", "label": "Demo webbed", "kind": "webbed", "num_episodes": 2, "num_tasks": 1, "total_hours": 0.1,
+           "datasets": [{"id": "demo", "label": "Demo webbed", "kind": "webbed", "origin": "open", "num_episodes": 2, "num_tasks": 1, "total_hours": 0.1,
                          "cameras": ["cam_high"], "preview": None, "annotations": "n/a"}]}
+# the persisted stats pass (stats_v2): per-episode records + the summary the tiles read; nothing is computed on request
+STATS = {"num_episodes": 2, "total_episodes": 2, "scanned": 2, "sampled": False, "built_at": 1.0,
+         "episodes": [{"task": "kitchen_put_spoon_seg48", "episode": "chunk_000__episode_000001", "duration_s": 16.1, "has_annotations": False},
+                      {"task": "kitchen_put_spoon_seg48", "episode": "chunk_000__episode_000003", "duration_s": 20.0, "has_annotations": True}],
+         "summary": {"hours": 0.0, "estimated": False, "median_duration_s": 18.1, "episodes_per_task_median": 2, "unique_tasks": 1,
+                     "annotated_episodes": 1}}
 TASK = {"task": "kitchen_put_spoon_seg48", "episodes": 2, "featured": 2, "prompt": "put the spoon in the drawer", "tags": ["bimanual", "yam"],
         "collected_start": None, "collected_end": None, "latest": "chunk_000__episode_000001"}
 DETAIL = {"task": TASK["task"], "episode": "chunk_000__episode_000001", "instruction": "put the spoon in the drawer", "status": None,
@@ -35,9 +41,10 @@ def _route(route):
     url = route.request.url
     path = url.split("://", 1)[1].split("/", 1)[1].split("?")[0]
     body = None
-    if path == "api/sources": body = {"sources": [{"id": "demo", "label": "Demo webbed", "kind": "webbed"}]}
+    if path == "api/sources": body = {"sources": [{"id": "demo", "label": "Demo webbed", "kind": "webbed", "origin": "open"}]}
     elif path == "api/catalog": body = CATALOG
-    elif path in ("api/contrib", "api/raiden_teachers", "api/stats"): return route.fulfill(status=404, body="{}")
+    elif path in ("api/contrib", "api/raiden_teachers"): return route.fulfill(status=404, body="{}")
+    elif path == "api/sources/demo/stats": body = STATS
     elif path == "api/sources/demo/tasks": body = {"tasks": [TASK["task"]]}
     elif path == "api/sources/demo/overview": body = {"bucket": "b", "prefix": "p", "region": "us-west-2", "num_episodes": 2, "num_tasks": 1, "tasks": [TASK], "stations": []}
     elif path.endswith("/episodes"): body = {"episodes": ["chunk_000__episode_000001", "chunk_000__episode_000003"], "total": 2, "featured": False}
@@ -215,4 +222,21 @@ def test_every_select_is_wrapped_including_late_ones(browser, site):
     page.wait_for_selector("#late-sel + .dd-btn", state="attached")
     assert page.locator("#late-native + .dd-btn").count() == 0
     assert page.locator("#late-sel + .dd-btn").inner_text().strip() == "a"
+    page.close()
+
+
+def test_overview_tiles_origin_chip_and_s3_foot(browser, site):
+    page = _open(browser, site)
+    page.wait_for_selector(".cat-card")
+    assert page.locator(".cat-card .cat-origin").first.inner_text() == "Open source"
+    page.click(".cat-card")
+    page.wait_for_selector("#ov-median-num:not(:has-text('…'))")
+    assert page.locator("#s3-root").inner_text() == "s3://b/p"
+    assert page.locator("#ov-origin").inner_text() == "Open source"
+    tiles = [x.lower() for x in page.locator("#ov-stats .ov-stat .lbl").all_inner_texts()]   # CSS uppercases them
+    assert not any("station" in x for x in tiles)
+    assert "median length" in tiles and "episodes / task" in tiles and "annotated episodes" in tiles
+    assert page.locator("#ov-median-num").inner_text() == "18.1 s"
+    assert page.locator("#ov-annot-num").inner_text() == "1"
+    page.screenshot(path=str(SHOTS / "rv_overview_stats.png"))
     page.close()

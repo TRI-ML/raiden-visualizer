@@ -61,7 +61,7 @@ def cheap_card(spec: dict, src) -> dict:
     # effort: LeRobot sources know their cameras from info.json; others leave blank
     # (filled in by the deep pass from a sampled episode_detail).
     return {
-        "id": spec["id"], "label": spec["label"], "kind": spec["kind"],
+        "id": spec["id"], "label": spec["label"], "kind": spec["kind"], "origin": spec.get("origin"),
         "bucket": src.bucket, "prefix": src.prefix,
         "num_tasks": ov.get("num_tasks"), "num_episodes": ov.get("num_episodes"),
         "stations": ov.get("stations", []),

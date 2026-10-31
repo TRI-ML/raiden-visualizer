@@ -254,6 +254,8 @@ function showCatalog() {
   renderCatalog();
 }
 
+// where a dataset comes from (config.SOURCES[].origin): shown as a chip on the card and the dataset page
+const ORIGIN_LABEL = { tri: "TRI", open: "Open source", purchased: "Purchased" };
 const CAT_KIND_LABEL = {
   raiden: "ZED .svo2", yam: "MCAP", lerobot: "LeRobot v3.0",
   lerobot_single: "LeRobot v3.0",
@@ -506,7 +508,7 @@ async function renderCatalog() {
     card.innerHTML = `
       <div class="cat-card-head">
         <div class="cat-card-title">${c.label}</div>
-        <span class="cat-fmt">${fmt}</span>
+        <span class="cat-fmt">${fmt}</span>${ORIGIN_LABEL[c.origin] ? `<span class="cat-fmt cat-origin ${c.origin}">${ORIGIN_LABEL[c.origin]}</span>` : ""}
       </div>
       <div class="cat-metrics">
         <div><b>${(c.num_episodes ?? "—").toLocaleString?.() ?? c.num_episodes ?? "—"}</b><span>episodes</span></div>
@@ -911,40 +913,32 @@ async function renderOverview() {
     const ov = await api(`${apiBase()}/overview`);
     const src = (state.sources || []).find((x) => x.id === state.source);
     $("#ov-title").textContent = src ? src.label : state.source;   // the dataset name is the page title
-    // s3 path hidden from the sidebar foot and the overview Source card (user, 2026-10-31); kept as a title.
-    $("#s3-root").textContent = "";
+    const chip = $("#ov-origin");
+    chip.textContent = ORIGIN_LABEL[src && src.origin] || "";
+    chip.hidden = !chip.textContent;
+    // the raw-data path lives in the sidebar foot (user, 2026-10-31); the overview Source card stays hidden
+    $("#s3-root").textContent = `s3://${ov.bucket}/${ov.prefix}`;
+    $("#s3-root").title = `s3://${ov.bucket}/${ov.prefix} · region ${ov.region}`;
     $("#ov-path").innerHTML = "";
     $("#ov-path").closest(".ov-path-card").hidden = true;
-    $("#ov-path").closest(".ov-path-card").title = `s3://${ov.bucket}/${ov.prefix} · region ${ov.region}`;
 
+    // Tiles: exact counts from the overview now; the rest from the persisted stats summary (renderAnalytics →
+    // fillSummaryTiles), never computed on request.
     const stats = $("#ov-stats");
     stats.innerHTML = "";
-    const cards = [
-      [ov.num_tasks, "Tasks"],
-      [ov.num_episodes, "Episodes"],
-      [ov.stations.length, ov.stations.length === 1 ? "Station" : "Stations"],
-    ];
-    cards.forEach(([num, lbl]) => {
+    const tile = (id, num, lbl) => {
       const c = el("div", "ov-stat");
-      c.appendChild(el("div", "num", String(num)));
-      c.appendChild(el("div", "lbl", lbl));
+      const n = el("div", "num", num); if (id) n.id = id;
+      c.appendChild(n); c.appendChild(el("div", "lbl", lbl));
       stats.appendChild(c);
-    });
-    // Hours-of-data card — filled in once /api/stats (with per-episode durations)
-    // loads in renderAnalytics; shows "…" until then.
-    const hcard = el("div", "ov-stat");
-    hcard.appendChild(el("div", "num", "…"));
-    hcard.querySelector(".num").id = "ov-hours-num";
-    const hlbl = el("div", "lbl", "Hours");
-    hlbl.id = "ov-hours-lbl";
-    hcard.appendChild(hlbl);
-    stats.appendChild(hcard);
-    if (ov.stations.length) {
-      const c = el("div", "ov-stat");
-      c.appendChild(el("div", "num", "🖥"));
-      c.appendChild(el("div", "lbl wrap", ov.stations.join(", ")));
-      stats.appendChild(c);
-    }
+      return c;
+    };
+    tile(null, String(ov.num_tasks), "Tasks");
+    tile(null, String(ov.num_episodes.toLocaleString()), "Episodes");
+    tile("ov-hours-num", "…", "Hours").querySelector(".lbl").id = "ov-hours-lbl";
+    tile("ov-median-num", "…", "Median length");
+    tile("ov-eptask-num", "…", "Episodes / task");
+    tile("ov-annot-num", "…", "Annotated episodes").id = "ov-annot-tile";
 
     state.overviewTasks = ov.tasks;  // per-task totals, for extrapolating hours
     if (state.task) renderTaskHead(state.task);   // deep link landed before the overview
@@ -1026,7 +1020,7 @@ function renderTaskList() {
     bar.appendChild(fill);
     row.appendChild(bar);
     row.appendChild(el("div", "t-count", `${t.episodes} ep`));   // plain episode count (user, 2026-10-31: no "5 of N")
-    // Per-task hours — filled in by updateHoursCard once /api/stats loads.
+    // Per-task hours — filled in by fillSummaryTiles once /api/stats loads.
     const hrs = el("div", "t-hours", "…");
     hrs.dataset.task = t.task;
     row.appendChild(hrs);
@@ -1126,7 +1120,7 @@ async function renderAnalytics(taskOrder) {
   const eps = (stats.episodes || []).filter((e) => e.duration_s != null);
   const colors = taskColors(taskOrder || []);
 
-  updateHoursCard(eps, stats);
+  fillSummaryTiles(stats);
   state.overviewEps = eps; drawHistogram(eps);
   state.overviewColors = colors; drawScatter(eps, colors);
   renderPreview(stats.episodes || [], taskOrder || []);   // two looping episodes per dataset
@@ -1313,39 +1307,31 @@ function setPreviewPlaying(on) {
   });
 }
 
-// Sum episode durations into the "Hours" overview card. When stats were sampled
-// (huge sources), scale the sampled mean up to the true episode count and mark it
-// an estimate, rather than under-reporting.
-function updateHoursCard(eps, stats) {
+// Fill the summary tiles from the persisted stats pass (stats.summary). Nothing is computed here: while the
+// warm / background build has not run yet the tiles say "not computed yet" (user, 2026-10-31).
+function fillSummaryTiles(stats) {
   const numEl = $("#ov-hours-num");
-  const lblEl = $("#ov-hours-lbl");
   if (!numEl) return;
-  const durs = eps.map((e) => e.duration_s).filter((d) => d > 0);
-  if (!durs.length) {
-    numEl.textContent = "—";
-    lblEl.textContent = "Hours";
+  const s = stats.summary;
+  const set = (id, v) => { const n = $(id); if (n) n.textContent = v; };
+  if (!s) {
+    ["#ov-hours-num", "#ov-median-num", "#ov-eptask-num", "#ov-annot-num"].forEach((id) => set(id, "—"));
+    $("#ov-hours-lbl").textContent = stats.computing ? "Hours · not computed yet" : "Hours";
+    $("#ov-annot-tile").hidden = true;
     return;
   }
-  const sumSecs = durs.reduce((a, b) => a + b, 0);
-  let totalSecs = sumSecs;
-  let estimated = false;
-  if (stats.sampled && stats.total_episodes) {
-    // Extrapolate: mean sampled duration × all episodes.
-    totalSecs = (sumSecs / durs.length) * stats.total_episodes;
-    estimated = true;
-  }
-  const hours = totalSecs / 3600;
-  numEl.textContent = (estimated ? "~" : "") + (hours >= 10 ? hours.toFixed(0) : hours.toFixed(1));
-  lblEl.textContent = estimated ? "Hours (est.)" : "Hours";
-  numEl.title = estimated
-    ? `Estimated from ${durs.length} sampled episodes (mean ${(sumSecs / durs.length).toFixed(1)}s) × ${stats.total_episodes.toLocaleString()} episodes`
-    : `Sum of ${durs.length} episode durations`;
-
-  updatePerTaskHours(eps, stats, estimated);
+  const est = s.estimated;
+  set("#ov-hours-num", s.hours == null ? "—" : (est ? "~" : "") + (s.hours >= 10 ? s.hours.toFixed(0) : s.hours.toFixed(1)));
+  $("#ov-hours-lbl").textContent = est ? "Hours (est.)" : "Hours";
+  numEl.title = est ? `Estimated from ${stats.scanned} sampled episodes × ${(stats.total_episodes || 0).toLocaleString()} episodes` : "";
+  set("#ov-median-num", s.median_duration_s == null ? "—" : `${s.median_duration_s} s`);
+  set("#ov-eptask-num", s.episodes_per_task_median == null ? "—" : String(Math.round(s.episodes_per_task_median)));
+  $("#ov-annot-tile").hidden = s.annotated_episodes == null;
+  set("#ov-annot-num", s.annotated_episodes == null ? "—" : s.annotated_episodes.toLocaleString());
+  const eps = (stats.episodes || []).filter((e) => e.duration_s != null);
+  updatePerTaskHours(eps, stats, est);
 }
 
-// Fill the per-task hours cells. For sampled sources, scale each task's own
-// sampled mean by its full episode count (from the overview's per-task totals).
 function updatePerTaskHours(eps, stats, estimated) {
   // Stashed so re-sorting the Tasks card (which rebuilds the rows) can refill the
   // cells without refetching stats.

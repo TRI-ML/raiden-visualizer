@@ -107,6 +107,40 @@ def poster_name(clip_name: str) -> str:
     return clip_name[:-4] + ".jpg" if clip_name.endswith(".mp4") else clip_name + ".jpg"
 
 
+# Blob key of the sampled stats pass. Bump when the pass gains fields (v2: "summary"): old blobs are then
+# ignored by _swr/_swr_peek's persisted read and recomputed by the next warm / background build.
+STATS_KEY = "stats_v2"
+
+
+def _median(xs):
+    xs = sorted(xs)
+    if not xs:
+        return None
+    m = len(xs) // 2
+    return xs[m] if len(xs) % 2 else (xs[m - 1] + xs[m]) / 2
+
+
+def summarize(episodes: list, total: int, tasks: list) -> dict:
+    """Dataset-page tiles from the stats pass + the overview's exact per-task counts. Hours are the sampled mean
+    scaled to every episode when the pass sampled (and flagged estimated). annotated_episodes is None when the
+    adapter does not know (has_annotations None everywhere)."""
+    durs = [e["duration_s"] for e in episodes if e.get("duration_s")]
+    hours = None
+    estimated = False
+    if durs:
+        mean_s = sum(durs) / len(durs)
+        estimated = len(episodes) < total
+        hours = round((mean_s * total if estimated else sum(durs)) / 3600.0, 1)
+    ann = [e.get("has_annotations") for e in episodes]
+    return {
+        "hours": hours, "estimated": estimated,
+        "median_duration_s": round(_median(durs), 1) if durs else None,
+        "episodes_per_task_median": _median([t.get("episodes") or 0 for t in tasks]) if tasks else None,
+        "unique_tasks": len(tasks) if tasks else None,
+        "annotated_episodes": sum(1 for a in ann if a) if any(a is not None for a in ann) else None,
+    }
+
+
 class Source:
     def __init__(self, spec: dict):
         self.id = spec["id"]
@@ -256,6 +290,26 @@ class Source:
         if cur is not None:
             return dict(cur)
         return dict(self._swr_build(key, build))
+
+    def _swr_peek(self, key: str, build) -> dict | None:
+        """Like _swr but never blocks a request: the memo / persisted blob or None, and when there is nothing
+        (or it is stale) ONE background thread builds + persists it for the next call."""
+        now = time.time()
+        with self._overview_lock:
+            st = self._swr_state.setdefault(key, {})
+            cur = st.get("value")
+            if cur is None and not st.get("skip_persisted"):
+                saved = cache.get_json(self._swr_blob(key), remote=True)
+                if isinstance(saved, dict) and isinstance(saved.get("built_at"), (int, float)):
+                    cur = st["value"] = saved
+            fresh = cur is not None and now - float(cur["built_at"]) < config.OVERVIEW_TTL_S
+            th = st.get("thread")
+            if not fresh and not (th is not None and th.is_alive()):
+                th = threading.Thread(target=self._swr_build, args=(key, build), daemon=True,
+                                      name=f"swr-{key}-{self.id}")
+                st["thread"] = th
+                th.start()
+        return dict(cur) if cur is not None else None
 
     def _swr_build(self, key: str, build) -> dict:
         built = build()
@@ -430,15 +484,17 @@ class Source:
             pairs.extend((t, eps[i]) for i in range(0, len(eps), step))
         return pairs, total
 
-    def stats(self, full: bool = False) -> dict:
-        """Stats pass for the charts. The default (sampled) pass is served through _swr:
-        memo → derived-tier blob → inline, refreshed in the background when stale, so a
-        dataset page does not re-read STATS_MAX episode records on every click or after
-        every deploy. ``full=True`` (small sources) is always computed now. For a full
-        scan of a huge source prefer scan_start()/scan_snapshot(), which stream progress."""
+    def stats(self, full: bool = False, wait: bool = True) -> dict | None:
+        """Stats pass for the charts + the dataset page's summary tiles. The default (sampled) pass is served
+        through _swr: memo → derived-tier blob → inline, refreshed in the background when stale. ``wait=False``
+        (the HTTP route) never computes on the request: it returns the persisted pass or None and leaves the
+        build to a background thread / the warm — "precompute and just fetch" (user, 2026-10-31).
+        ``full=True`` (small sources) is always computed now."""
         if full:
             return self._stats_now(True)
-        return self._swr("stats_v1", lambda: self._stats_now(False))
+        if not wait:
+            return self._swr_peek(STATS_KEY, lambda: self._stats_now(False))
+        return self._swr(STATS_KEY, lambda: self._stats_now(False))
 
     def _stats_now(self, full: bool) -> dict:
         pairs, total = self._stat_pairs(full)
@@ -455,6 +511,7 @@ class Source:
             "scanned": len(episodes),
             "sampled": len(pairs) < total,
             "episodes": episodes,
+            "summary": summarize(episodes, total, self.overview().get("tasks", [])),
         }
 
     # ---- cached per-episode stats + background full scan (for filtering) ----
@@ -1070,16 +1127,17 @@ class LeRobotSource(Source):
             "stations": [], "tasks": per_task,
         }
 
-    def stats(self, full: bool = False) -> dict:
+    def stats(self, full: bool = False, wait: bool = True) -> dict:
         # Every episode's record is in the source index already: no per-episode work,
-        # no sampling.
+        # no sampling, nothing to wait for.
         eps = list(self.source_index()["stats"])
         total = len(eps)
         if not full and total > self.STATS_MAX:          # keep the chart payload bounded
             step = max(1, total // self.STATS_MAX)
             eps = eps[::step]
         return {"num_episodes": len(eps), "total_episodes": total, "scanned": len(eps),
-                "sampled": len(eps) < total, "episodes": eps}
+                "sampled": len(eps) < total, "episodes": eps,
+                "summary": summarize(eps, total, self.overview().get("tasks", []))}
 
     # ---- warmed-clip manifest: (episode, camera) -> cache name, no HEADs ----------
 
