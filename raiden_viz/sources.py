@@ -144,7 +144,7 @@ class Source:
         # keep the stored pick while its episodes exist and the task has not grown/shrunk by more than 20 %
         # (a re-pick throws away pre-rendered clips, so small additions do not trigger one)
         if hit and set(hit.get("episodes") or []) <= set(eps) and abs(len(eps) - hit.get("of", len(eps))) <= 0.2 * hit.get("of", len(eps)):
-            return hit["episodes"]
+            return hit["episodes"][:config.FEATURED_N]   # a smaller N keeps the head of the old pick (its clips are rendered)
         pick = random.Random(f"{self.id}/{task}").sample(sorted(eps), config.FEATURED_N)
         pick.sort(key=eps.index)
         cache.put_json(key, {"episodes": pick, "of": len(eps)}, remote=True)
