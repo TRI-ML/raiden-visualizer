@@ -1,4 +1,5 @@
-"""Disk cache for downloaded .svo2 files and transcoded .mp4 clips.
+"""Disk cache (the local tier) for downloaded raw files, transcoded .mp4 clips and small JSON blobs; entries
+marked ``remote`` are mirrored to the derived S3 tier so a redeploy or another host finds them ready.
 
 Keyed by S3 ETag so a re-uploaded object transparently invalidates. A simple
 size-based LRU eviction keeps the cache bounded. Writes go to a unique temp

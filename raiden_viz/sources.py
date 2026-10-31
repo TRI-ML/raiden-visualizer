@@ -30,6 +30,8 @@ from pathlib import Path
 
 import logging
 
+import numpy as np
+
 from . import cache, calib_overlay, config, fk, lerobot, previews, robot_data, s3, svo, webbed, yam
 
 # In-flight/finished background stat scans, keyed by a per-source scan id. Held in
@@ -139,7 +141,9 @@ class Source:
             return eps
         key = f"featured_{self.id}_{re.sub(r'[^A-Za-z0-9_.-]', '_', task)}.json"
         hit = cache.get_json(key, remote=True)
-        if hit and set(hit.get("episodes") or []) <= set(eps):
+        # keep the stored pick while its episodes exist and the task has not grown/shrunk by more than 20 %
+        # (a re-pick throws away pre-rendered clips, so small additions do not trigger one)
+        if hit and set(hit.get("episodes") or []) <= set(eps) and abs(len(eps) - hit.get("of", len(eps))) <= 0.2 * hit.get("of", len(eps)):
             return hit["episodes"]
         pick = random.Random(f"{self.id}/{task}").sample(sorted(eps), config.FEATURED_N)
         pick.sort(key=eps.index)
@@ -270,7 +274,7 @@ class Source:
         failed = []
         for i, task in enumerate(todo):
             try:
-                eps = self.list_episodes(task)
+                eps = self.featured_episodes(task)   # a featured episode: its clips are what warm pre-renders anyway
                 if not eps:
                     continue
                 with tempfile.TemporaryDirectory(dir=str(config.CACHE_DIR)) as d:
@@ -1445,7 +1449,8 @@ class WebbedSource(Source):
     """Ge's AnyData "webbed" export: one dataset folder per task, a split_all.json manifest per dataset and
     per-camera tar shards (see webbed.py). An episode is mined ONCE (every camera's rgb mp4, a turbo depth mp4,
     the robot summary from cam_high's lowdim) into the cache tiers under names keyed by the manifest etag, so
-    the derived-first video route and the warm CLI work exactly as for the other sources."""
+    the derived-first video route and the warm CLI work exactly as for the other sources. The export carries no
+    capture timestamps (only the manifest's upload time), so collected_start / collected_end stay None here."""
 
     def __init__(self, spec):
         super().__init__(spec)
@@ -1517,7 +1522,8 @@ class WebbedSource(Source):
         meta_name = f"{base}_meta.json"
         meta = cache.get_json(meta_name, remote=True)
         cams = self._cameras(parsed, shared)
-        if meta and all(cache.exists(f"{base}_{c}.mp4") for c in cams):
+        # only the cameras that had video are checked: a camera without rgb would otherwise re-mine the episode on every view
+        if meta and all(cache.exists(f"{base}_{c['name']}.mp4") for c in meta.get("cameras", []) if c.get("has_video")):
             return meta
         cache.evict(headroom_gb=1.0)
         tmp = Path(tempfile.mkdtemp(prefix="webbed_", dir=config.CACHE_DIR))
@@ -1537,7 +1543,6 @@ class WebbedSource(Source):
                 cameras.append({"name": c, "has_video": bool(rgb), "eyes": ["left"]})
                 depth = [sh["depth"] for sh in per_cam[c] if sh["depth"] is not None]
                 if depth:
-                    import numpy as np
                     stack = np.concatenate(depth)
                     cache.get_or_create(f"{base}_{c}_depth.mp4", lambda dst, _d=stack: webbed.depth_to_mp4(_d, dst))
                     cameras.append({"name": f"{c}_depth", "has_video": True, "eyes": ["left"]})
