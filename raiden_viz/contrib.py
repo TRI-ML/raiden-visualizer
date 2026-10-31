@@ -37,7 +37,7 @@ def _episode_suffix(spec: dict) -> str | None:
     """The key suffix that marks exactly one episode for this source, or None if
     the format packs episodes (so per-episode counting isn't meaningful)."""
     kind = spec.get("kind")
-    if kind == "raiden":
+    if kind in ("raiden", "raiden_rollouts"):
         return "/metadata.json"
     if kind == "yam":
         return "/" + spec["mcap_name"]

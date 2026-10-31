@@ -2293,7 +2293,14 @@ function renderRollout(md) {
   $("#rollout-generator").textContent = md.generator || "";
   const body = $("#rollout-body");
   body.innerHTML = "";
+  const sc = md.score || {};   // yam-eval rollouts: the operator's / judge's score block
   const rows = [
+    ["Model", md.label || sc.label, false],
+    ["Family", ri.family, false],
+    ["Prompt", ri.prompt, false],
+    ["Verdict", md.verdict, false],
+    ["Judge", sc.source, true],
+    ["Station", sc.station, false],
     ["Policy", ri.policy, false],
     ["Config", ri.config_name, true],
     ["Action space", ri.action_space, false],
@@ -2302,7 +2309,7 @@ function renderRollout(md) {
     ["Actor / tick", ri.actor_per_tick, false],
     ["Ensemble coeff", ri.ensemble_coeff, false],
     ["Max joint delta", ri.max_joint_delta, false],
-    ["Verdict", ri.verdict, false],
+    ["Verdict", md.verdict ? null : ri.verdict, false],   // rfm_rl rollouts keep theirs inside rollout_info
     ["GT episode", ri.gt_episode, false],
     ["Git commit", ri.git_commit ? String(ri.git_commit).slice(0, 10) : null, true],
   ];
