@@ -122,12 +122,13 @@ body.catalog-mode #sidebar .side-foot { display: none; }
 .seg.theme-seg button.active { background: var(--accent); color: #06101f; border-color: var(--accent); font-weight: 600; }
 .seg.theme-seg button:disabled { cursor: default; opacity: 0.55; }
 /* fleet-wide activity panels only make sense on the production site */
-html[data-env="dev"] .contrib-row, html[data-env="local"] .contrib-row { display: none; }
-/* dev / local also skip the calibration & cameras card on the episode page (user, 2026-10-31) */
-html[data-env="dev"] .calib-card, html[data-env="local"] .calib-card { display: none; }
-/* dev / local also drop the Preview and Filter episodes cards on the dataset overview (user, 2026-10-31) */
-html[data-env="dev"] .ov-preview-card, html[data-env="local"] .ov-preview-card,
-html[data-env="dev"] .ov-filter-card, html[data-env="local"] .ov-filter-card { display: none; }
+/* prod (and stage, its mirror) is the lean site: no fleet activity panels, no calibration card, no Preview / Filter cards,
+   no episode-length-vs-recorded-time chart. dev and local keep every feature (user, 2026-10-31: "flip dev and prod"). */
+html[data-env="prod"] .contrib-row, html[data-env="stage"] .contrib-row,
+html[data-env="prod"] .calib-card, html[data-env="stage"] .calib-card,
+html[data-env="prod"] .ov-preview-card, html[data-env="stage"] .ov-preview-card,
+html[data-env="prod"] .ov-filter-card, html[data-env="stage"] .ov-filter-card,
+html[data-env="prod"] .ov-scatter-card, html[data-env="stage"] .ov-scatter-card { display: none; }
 
 .search-wrap input {
   width: 100%; padding: 9px 12px; border-radius: var(--radius-sm);

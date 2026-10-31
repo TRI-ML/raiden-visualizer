@@ -99,26 +99,27 @@ def test_catalog_renders_and_theme_toggle_persists(browser, site):
 
 
 def test_env_segment_and_activity_panels(browser, site):
-    # dev: Dev lit, fleet-wide activity panels hidden; prod: Prod lit, panels shown; local (no hostname): segment disabled
-    page = _open(browser, site, query="?env=dev")
-    page.wait_for_selector(".cat-card")
-    assert "active" in page.get_attribute('#env-seg [data-env="dev"]', "class")
-    assert page.locator(".contrib-card").first.is_hidden()
-    assert page.locator(".teacher-card").is_hidden()
-    page.screenshot(path=str(SHOTS / "rv_header_dev.png"))
-    page.close()
+    # prod is the lean site: Prod lit, fleet-wide activity panels hidden; dev: Dev lit, panels shown; local (no hostname):
+    # segment disabled, full feature set like dev
     page = _open(browser, site, query="?env=prod")
     page.wait_for_selector(".cat-card")
     assert "active" in page.get_attribute('#env-seg [data-env="prod"]', "class")
+    assert page.locator(".contrib-card").first.is_hidden()
+    assert page.locator(".teacher-card").is_hidden()
+    page.screenshot(path=str(SHOTS / "rv_header_prod.png"))
+    page.close()
+    page = _open(browser, site, query="?env=dev")
+    page.wait_for_selector(".cat-card")
+    assert "active" in page.get_attribute('#env-seg [data-env="dev"]', "class")
     assert page.locator(".contrib-card").first.is_visible()
     assert page.locator(".teacher-card").is_visible()
-    page.screenshot(path=str(SHOTS / "rv_header_prod.png"))
+    page.screenshot(path=str(SHOTS / "rv_header_dev.png"))
     page.close()
     page = _open(browser, site)
     page.wait_for_selector(".cat-card")
     assert page.evaluate("document.documentElement.dataset.env") == "local"
     assert page.locator('#env-seg [data-env="prod"]').is_disabled()
-    assert page.locator(".teacher-card").is_hidden()
+    assert page.locator(".teacher-card").is_visible()
     page.close()
 
 

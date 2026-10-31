@@ -533,7 +533,7 @@ async function renderCatalog() {
   // Stash the cards for the comparison bar chart (redrawn on metric toggle / resize).
   state.catalog = data.datasets;
   drawCatalogBars(state.catMetric || "episodes");
-  if (ENV === "prod" || ENV === "stage") {   // the activity panels are hidden on dev / local (see initEnv)
+  if (ENV === "dev" || ENV === "local") {   // the activity panels are hidden on prod / stage (see initEnv)
     loadContrib();   // upload-activity calendar (independent /api/contrib scan)
     loadTeachers();  // raiden teleop-per-day-by-teacher bars (/api/raiden_teachers)
   }
@@ -1027,7 +1027,7 @@ function renderTaskList() {
     fill.style.width = `${(t.episodes / maxEp) * 100}%`;
     bar.appendChild(fill);
     row.appendChild(bar);
-    row.appendChild(el("div", "t-count", t.featured && t.featured < t.episodes ? `${t.featured} of ${t.episodes} ep` : `${t.episodes} ep`));
+    row.appendChild(el("div", "t-count", `${t.episodes} ep`));   // plain episode count (user, 2026-10-31: no "5 of N")
     // Per-task hours — filled in by updateHoursCard once /api/stats loads.
     const hrs = el("div", "t-hours", "…");
     hrs.dataset.task = t.task;
@@ -1792,9 +1792,8 @@ function renderEpisodeList() {
     // Timestamp: from the metadata when we have it, else parsed out of the
     // episode's own name (raiden dirs are station_<ISO timestamp>).
     const parsed = parseEpisodeName(ep);
-    const when = (f && f.timestamp) ? formatStamp(f.timestamp) : parsed.when;
-    // no timestamp (webbed / LeRobot): the readable episode name stands in, so the row is more than its index
-    const sub = when || (parsed.name !== ep ? parsed.name : "");
+    // dates are not shown (user, 2026-10-31); the readable episode name stands in when it differs from the id
+    const sub = parsed.name !== ep ? parsed.name : "";
     if (sub) li.appendChild(el("div", "ep-li-when mono", sub));
     li.onclick = () => selectEpisode(ep);
     list.appendChild(li);
@@ -1805,7 +1804,7 @@ function renderEpisodeList() {
     list.appendChild(more);
   }
   if (state.episodesFeatured && !filter) {
-    const more = el("li", "ep-li-more ep-li-all", `${state.episodes.length} featured of ${state.episodesTotal} — show all`);
+    const more = el("li", "ep-li-more ep-li-all", `show all ${state.episodesTotal.toLocaleString()} episodes`);
     more.onclick = async () => {
       const { episodes } = await api(`${apiBase()}/tasks/${encodeURIComponent(state.task)}/episodes?all=1`);
       state.episodes = episodes; state.episodesFeatured = false; renderEpisodeList();
