@@ -260,3 +260,33 @@ def test_overview_page_has_the_preview_block():
     assert 'id="preview-body"' in html and html.index('id="hist-canvas"') < html.index('id="preview-body"')
     assert "async function waitForClip" in js and "renderPreview(stats.episodes" in js and "id=\"preview-task\"" in html and "id=\"preview-sample\"" in html
     assert '"Loading…"' in js
+
+
+# ---- missing data parquet (WorldEngine points some episodes at files never uploaded) ----
+
+def test_missing_data_parquet_gives_a_detail_without_traces(monkeypatch):
+    from botocore.exceptions import ClientError
+
+    def get_bytes(key, bucket=None):
+        raise ClientError({"Error": {"Code": "NoSuchKey", "Message": "nope"}}, "GetObject")
+    monkeypatch.setattr(sources.s3, "get_bytes", get_bytes)
+    src = sources.LeRobotSource(FLAT)
+    meta = {"info": {"data_path": "data/chunk-{chunk_index:03d}/file-{file_index:03d}.parquet",
+                     "cameras": ["cam_high"], "fps": 30}, "tasks": {}}
+    row = {"episode_index": 316, "data_chunk": 0, "data_file": 349, "status": None}
+    tbl = src._data_table("pack-lunch-boxes", meta, row)
+    assert tbl.num_rows == 0
+    d = src._build_detail("pack-lunch-boxes", "episode_000316", meta, row, tbl)
+    assert d["cameras"] == [{"name": "cam_high", "has_video": True, "eyes": ["left"]}]
+    assert d["robot"]["summary"]["num_steps"] == 0 and d["annotations"] == []
+
+
+def test_other_s3_errors_still_raise(monkeypatch):
+    from botocore.exceptions import ClientError
+
+    def get_bytes(key, bucket=None):
+        raise ClientError({"Error": {"Code": "AccessDenied", "Message": "no"}}, "GetObject")
+    monkeypatch.setattr(sources.s3, "get_bytes", get_bytes)
+    meta = {"info": {"data_path": "data/chunk-{chunk_index:03d}/file-{file_index:03d}.parquet"}}
+    with pytest.raises(ClientError):
+        sources.LeRobotSource(FLAT)._data_table("t", meta, {"episode_index": 1, "data_chunk": 0, "data_file": 0})

@@ -25,12 +25,19 @@ from collections import OrderedDict
 from pathlib import Path
 
 import numpy as np
+import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
 # LeRobot names video features "observation.images.<cam>"; the short name is what
 # the viewer shows and routes on, the full key is what the parquet columns use.
 VIDEO_PREFIX = "observation.images."
+
+
+def empty_table():
+    """Zero rows, no columns: stands in for a data parquet that was never uploaded.
+    Every consumer below already handles num_rows == 0 / a missing column."""
+    return pa.table({})
 
 
 def read_table(raw: bytes):

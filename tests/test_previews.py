@@ -186,3 +186,23 @@ def test_lerobot_index_rebuild_prunes_previews(remote, monkeypatch):
     monkeypatch.setattr(src, "_list_tasks_raw", lambda: ["plate"])
     src.rebuild_source_index()
     assert set(src.previews()) == {"plate"}
+
+
+def test_preview_warm_falls_through_to_the_next_featured_episode(remote, monkeypatch):
+    """A stray first pick (no metadata.json, missing svo2, ...) must not cost the task its preview."""
+    src = _Src()
+
+    def build_for(s, task, ep, wd):
+        if ep == "e0":
+            raise FileNotFoundError("camera not found: ego_camera")
+        return {"ego_camera": ("pv_E1_ego_camera.jpg", "pv_E1_ego_camera.mp4")}
+    monkeypatch.setattr(previews, "build_for", build_for)
+    res = src.preview_warm()
+    assert res["failed"] == [] and src.previews()["MakeCoffee"]["episode"] == "e1"
+
+
+def test_preview_warm_reports_the_last_error_when_every_pick_fails(remote, monkeypatch):
+    src = _Src()
+    monkeypatch.setattr(previews, "build_for", lambda s, task, ep, wd: (_ for _ in ()).throw(ValueError("stub file")))
+    res = src.preview_warm()
+    assert res["failed"] == [("MakeCoffee", "ValueError: stub file")]
