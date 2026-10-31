@@ -18,12 +18,15 @@ YamMcapSource: <prefix>/<task>/episode_<uuid>/output.mcap  (one Foxglove-protobu
 import hashlib
 import json
 import os
+import random
 import re
+import shutil
+import tempfile
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from . import cache, calib_overlay, fk, robot_data, s3, svo, yam
+from . import cache, calib_overlay, config, fk, robot_data, s3, svo, webbed, yam
 
 # In-flight/finished background stat scans, keyed by a per-source scan id. Held in
 # memory (a scan is cheap to restart and its per-episode records are disk-cached).
@@ -107,11 +110,30 @@ class Source:
     def list_tasks(self) -> list[str]:
         return s3.list_dirs(self.prefix, bucket=self.bucket)
 
-    def list_episodes(self, task: str) -> list[str]:
+    def all_episodes(self, task: str) -> list[str]:
         eps = s3.list_dirs(f"{self.prefix}/{task}", bucket=self.bucket)
         return sorted(eps, reverse=True)
 
+    def list_episodes(self, task: str, all: bool = False) -> list[str]:
+        """The task's FEATURED episodes (config.FEATURED_N, a stable random sample kept in a small JSON per task
+        so the pick never changes and can be pre-decoded on the host); ``all`` returns every episode."""
+        eps = self.all_episodes(task)
+        if all or len(eps) <= config.FEATURED_N:
+            return eps
+        key = f"featured_{self.id}_{re.sub(r'[^A-Za-z0-9_.-]', '_', task)}.json"
+        hit = cache.get_json(key)
+        if hit and set(hit.get("episodes") or []) <= set(eps):
+            return hit["episodes"]
+        pick = random.Random(f"{self.id}/{task}").sample(sorted(eps), config.FEATURED_N)
+        pick.sort(key=eps.index)
+        cache.put_json(key, {"episodes": pick, "of": len(eps)})
+        return pick
+
     # ---- per-source ----
+    def task_facts(self, task: str) -> dict:
+        """Extra per-task overview fields (prompt, tags, shards); sources without them return {}."""
+        return {}
+
     def episode_detail(self, task: str, episode: str) -> dict:
         raise NotImplementedError
 
@@ -126,14 +148,15 @@ class Source:
         tasks = self.list_tasks()
         per_task, total, stations = [], 0, set()
         for task in tasks:
-            eps = self.list_episodes(task)
+            eps = self.all_episodes(task)
             total += len(eps)
             latest = eps[0] if eps else None
             for ep in eps:
                 m = re.match(r"^([A-Za-z][\w-]*)_\d{4}-\d{2}-\d{2}T", ep)
                 if m:
                     stations.add(m.group(1))
-            per_task.append({"task": task, "episodes": len(eps), "latest": latest})
+            per_task.append({"task": task, "episodes": len(eps), "featured": min(len(eps), config.FEATURED_N),
+                             "latest": latest, **self.task_facts(task)})
         per_task.sort(key=lambda t: t["episodes"], reverse=True)
         return {
             "source": self.id, "bucket": self.bucket, "prefix": self.prefix,
@@ -525,7 +548,145 @@ class YamMcapSource(Source):
         return base
 
 
-_KINDS = {"raiden": RaidenSource, "yam": YamMcapSource}
+class WebbedSource(Source):
+    """Ge's AnyData "webbed" export: one dataset folder per task, a split_all.json manifest per dataset and
+    per-camera tar shards (see webbed.py). Episodes are mined once (all cameras + depth + lowdim) into the
+    cache keyed by the manifest etag."""
+
+    def __init__(self, spec):
+        super().__init__(spec)
+        self.datasets = list(spec["datasets"])
+        self.split = spec.get("split", "split_all__IKDLA_48")
+        self._manifests: dict[str, tuple[str, dict, dict]] = {}   # task -> (etag, parsed manifest, shared meta)
+        self._lock = threading.Lock()
+
+    def _split_prefix(self, task):
+        return f"{self.prefix}/{task}/{self.split}"
+
+    def _manifest(self, task):
+        """(etag, parsed manifest, shared meta), re-read when the manifest object changes."""
+        key = f"{self._split_prefix(task)}/split_all.json"
+        obj = s3.try_head(key, bucket=self.bucket)
+        if obj is None:
+            raise FileNotFoundError(f"no manifest for {task}")
+        with self._lock:
+            hit = self._manifests.get(task)
+            if hit and hit[0] == obj.etag:
+                return hit
+        parsed = webbed.parse_manifest(s3.get_json(key, bucket=self.bucket))
+        shared = webbed.shared_meta(s3.try_get_json(f"{self._split_prefix(task)}/metadata_shared.json",
+                                                    bucket=self.bucket) or {})
+        with self._lock:
+            self._manifests[task] = (obj.etag, parsed, shared)
+        return self._manifests[task]
+
+    def list_tasks(self):
+        return self.datasets
+
+    def all_episodes(self, task):
+        return sorted(self._manifest(task)[1]["episodes"])
+
+    def task_facts(self, task):
+        try:
+            _, parsed, shared = self._manifest(task)
+        except Exception:
+            return {}
+        return {"prompt": shared.get("prompt"), "tags": shared.get("tags"), "shards": parsed.get("n_files")}
+
+    def _shards(self, task, episode):
+        etag, parsed, shared = self._manifest(task)
+        shards = parsed["episodes"].get(episode)
+        if shards is None:
+            raise FileNotFoundError(f"no episode {episode} in {task}")
+        return etag, parsed, shared, shards
+
+    def _mine(self, task, episode) -> dict:
+        """Download every camera's shards for the episode, build one rgb mp4 + one depth mp4 per camera and the
+        robot summary from cam_high's lowdim; cache all of it keyed by (manifest etag, episode). Idempotent."""
+        etag, parsed, shared, shards = self._shards(task, episode)
+        base = f"webbed_{etag}_{episode}"
+        meta_path = cache.path_for(f"{base}_meta.json")
+        cams = parsed["cameras"] or shared.get("cameras") or []
+        if meta_path.exists() and all(cache.path_for(f"{base}_{c}.mp4").exists() for c in cams):
+            return json.loads(meta_path.read_text())
+        cache.evict(headroom_gb=1.0)
+        tmp = Path(tempfile.mkdtemp(prefix="webbed_", dir=config.CACHE_DIR))
+        try:
+            per_cam = {c: [] for c in cams}
+            jobs = [(c, s) for c in cams for s in shards]
+            key_prefix = f"{self._split_prefix(task)}/{webbed.seq_key(episode)}"
+            with ThreadPoolExecutor(max_workers=8) as pool:
+                paths = list(pool.map(lambda cs: self._fetch_shard(key_prefix, cs[0], cs[1], tmp), jobs))
+            for (c, s), p in zip(jobs, paths):
+                per_cam[c].append(webbed.read_shard(p, tmp / c / s[:-4]))
+            robot, prompt = None, None
+            for c in cams:
+                rgb = [sh["rgb"] for sh in per_cam[c] if sh["rgb"] is not None]
+                if rgb and not cache.path_for(f"{base}_{c}.mp4").exists():
+                    cache.get_or_create(f"{base}_{c}.mp4", lambda dst, _r=rgb: webbed.concat_rgb(_r, dst))
+                depth = [sh["depth"] for sh in per_cam[c] if sh["depth"] is not None]
+                if depth and not cache.path_for(f"{base}_{c}_depth.mp4").exists():
+                    stack = __import__("numpy").concatenate(depth)
+                    cache.get_or_create(f"{base}_{c}_depth.mp4", lambda dst, _d=stack: webbed.depth_to_mp4(_d, dst))
+                if robot is None:
+                    lows = [sh["lowdim"] for sh in per_cam[c] if sh["lowdim"] is not None]
+                    robot = webbed.robot_summary(lows)
+                    prompt = next((l["language"] for l in lows if l.get("language")), None)
+            cameras = [{"name": c, "has_video": cache.path_for(f"{base}_{c}.mp4").exists(), "eyes": ["left"]} for c in cams]
+            cameras += [{"name": f"{c}_depth", "has_video": True, "eyes": ["left"]}
+                        for c in cams if cache.path_for(f"{base}_{c}_depth.mp4").exists()]
+            meta = {"etag": etag, "cameras": cameras, "robot": robot,
+                    "instruction": prompt or shared.get("prompt"),
+                    "shard_bounds_s": webbed.shard_bounds_s(shards),
+                    "metadata": {"task_instruction": prompt or shared.get("prompt"), "dataset": task,
+                                 "frames": webbed.episode_frames(shards), "shards": len(shards),
+                                 "duration_s": round(webbed.episode_frames(shards) / webbed.FPS, 2),
+                                 "framerate": webbed.FPS, "resolution": shared.get("resolution"),
+                                 "tags": shared.get("tags"), "action_dim": shared.get("action_dim")}}
+            meta_path.write_text(json.dumps(meta))
+            return meta
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def _fetch_shard(self, key_prefix, cam, shard, tmp):
+        dst = tmp / cam / shard
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        s3.download(f"{key_prefix}/{cam}/{shard}", dst, bucket=self.bucket)
+        return dst
+
+    def episode_detail(self, task, episode):
+        meta = self._mine(task, episode)
+        return {"source": self.id, "task": task, "episode": episode, "instruction": meta["instruction"],
+                "status": None, "metadata": meta["metadata"], "calibration": None, "cameras": meta["cameras"],
+                "robot": meta["robot"], "annotations": [], "shard_bounds_s": meta["shard_bounds_s"]}
+
+    def video_path(self, task, episode, camera, eye):
+        etag, *_ = self._shards(task, episode)
+        mp4 = cache.path_for(f"webbed_{etag}_{episode}_{camera}.mp4")
+        if not mp4.exists():
+            self._mine(task, episode)
+        if not mp4.exists():
+            raise FileNotFoundError(f"camera {camera!r} not found in {task}/{episode}")
+        return mp4
+
+    def _stat_head(self, task, episode):
+        return s3.try_head(f"{self._split_prefix(task)}/split_all.json", bucket=self.bucket)
+
+    def _stat_cache_key(self, task, episode):
+        key = super()._stat_cache_key(task, episode)   # the manifest etag is per dataset, so add the episode
+        return key and key.replace(".json", f"_{episode}.json")
+
+    def episode_stat(self, task, episode):
+        obj = self._stat_head(task, episode)
+        _, parsed, shared, shards = self._shards(task, episode)
+        n = webbed.episode_frames(shards)
+        return {"task": task, "episode": episode, "duration_s": round(n / webbed.FPS, 2), "robot_frames": n,
+                "robot_hz": webbed.FPS, "num_cameras": len(parsed["cameras"] or shared.get("cameras") or []),
+                "status": "success" if "success" in (shared.get("tags") or []) else None, "station": None,
+                "timestamp": obj.last_modified if obj else None, "has_annotations": None}
+
+
+_KINDS = {"raiden": RaidenSource, "yam": YamMcapSource, "webbed": WebbedSource}
 _SOURCES: dict[str, Source] = {}
 
 

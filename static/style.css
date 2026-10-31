@@ -398,3 +398,11 @@ select:focus { border-color: var(--accent); }
 .fr-tag.failure, .fr-tag.fail { background: rgba(248,113,113,0.12); color: var(--bad); border-color: rgba(248,113,113,0.3); }
 .fr-tag.ann { background: rgba(110,168,254,0.10); color: var(--accent); border-color: rgba(110,168,254,0.28); }
 .fr-more { padding: 8px 12px; font-size: 12px; }
+
+/* webbed datasets: language prompt under the task name; shard-boundary ticks under the scrubber */
+.ov-task-row .t-prompt { font-weight: 400; font-size: 11px; color: var(--text-faint); margin-top: 2px; }
+#episode-list li.ep-li-all { cursor: pointer; pointer-events: auto; color: var(--accent); font-style: normal; }
+.scrub-wrap { position: relative; flex: 1; display: flex; flex-direction: column; }
+.scrub-wrap .scrubber { width: 100%; }
+.shard-ticks { position: relative; height: 6px; margin-top: -2px; }
+.shard-ticks i { position: absolute; top: 0; width: 1px; height: 6px; background: var(--text-faint); }

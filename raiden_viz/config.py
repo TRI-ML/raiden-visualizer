@@ -16,6 +16,13 @@ AWS_REGION = os.environ.get("RAIDEN_AWS_REGION", "us-west-2")
 #   yam:    <prefix>/<task>/episode_<uuid>/<mcap_name>  (one Foxglove-protobuf MCAP)
 SOURCES = [
     {"id": "raiden", "label": "Raiden", "kind": "raiden", "bucket": S3_BUCKET, "prefix": S3_PREFIX},
+    # Raiden SIM replay datasets: real teleop replayed in the Isaac sim (replay_banana.py --record).
+    # Same raiden layout (<prefix>/<task>/<episode>/{metadata.json, robot_data.npz, rigid_poses.npz}),
+    # so the raiden adapter handles it. NOTE cameras were recorded OFF (record-now/render-later), so
+    # there are no cameras/*.svo2 — video playback is unavailable, but metadata + robot_data + the
+    # per-episode stats (grasp_success, banana_peak_lift_m) browse normally.
+    {"id": "raiden_sim", "label": "Raiden (sim replay)", "kind": "raiden", "bucket": S3_BUCKET,
+     "prefix": "raiden/sim_datasets"},
     {"id": "yam", "label": "YAM (xdof)", "kind": "yam", "bucket": S3_BUCKET,
      "prefix": "yam_raw/2026_03_30_zed", "mcap_name": "output.mcap"},
     # YAM teleop recorded on the russet station, uploaded from ~/data/raw. Same
@@ -37,6 +44,26 @@ SOURCES = [
      # MCAP carries no intrinsics, so this is the only calibration for xdof.
      "metadata_prefix": "metadata_202507"},
 ]
+
+# Ge's "webbed" AnyData export of the UW YAM teleop corpora (2026-07): one folder per dataset, a split_all.json
+# manifest + per-camera tar shards (see webbed.py). One source; each dataset is a "task".
+WEBBED_DATASETS = [
+    "key_unlock_bc", "key_insertion_and_unlock", "self_repair_gripper_bc",
+    "self_repair_gripper_dagger_maniflow_r1_operator", "self_repair_gripper_dagger_maniflow_r2_operator",
+    "self_repair_gripper_yellow_screw_holder_bc", "plug_usb_bc", "plug_usb_new_gripper_dagger_r1",
+    "plug_white_usb_cable", "put_pen_into_bag_V3_newfinger", "put_pen_into_bag_merged",
+    "put_pen_into_bag_new_finger_dagger_maniflow_r1", "put_pen_into_bag_umigripper_dagger_pi05_r1",
+    "put_plate_to_rack_v4_521", "put_plate_to_rack_v4_neural_light_200", "kitchen_full",
+    "kitchen_full_no_put_plate", "kitchen_rack_combo", "kitchen_put_spoon", "stack_cup_neural_light",
+    "clean_up_table_V2_neural_light_1245", "organize_the_table_fork_spoon_merged",
+]
+SOURCES.append({"id": "webbed", "label": "YAM webbed (UW, Ge)", "kind": "webbed", "bucket": "tri-ml-datasets-uw2",
+                "prefix": "geyan/anydata/cv_webbed/videos", "split": "split_all__IKDLA_48",
+                "datasets": [f"{n}_seg48" for n in WEBBED_DATASETS]})
+
+# Episodes shown (and pre-decoded by scripts/precache.py) per task: a stable random sample, so every split
+# loads instantly from the host's cache; "show all" lists the rest on demand.
+FEATURED_N = int(os.environ.get("RAIDEN_FEATURED_N", "10"))
 
 # Buckets that require a specific AWS profile (SSO) rather than the default
 # credentials/instance-role. The xdof vendor bucket is granted to the
