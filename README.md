@@ -24,9 +24,10 @@ a one-line config entry.
 | `abc130k_val` | ABC-130k (val) | MCAP | ABC-130k val split |
 | `worldengine` | WorldEngine | LeRobot v3.0 | `<prefix>/<task>/{meta,data,videos}` (one dataset per task folder) |
 | `molmoact2_yam` | MolmoAct2 Bimanual YAM | LeRobot v3.0 | `<prefix>/{meta,data,videos}` (single dataset, grouped by internal task) |
+| `webbed` | YAM webbed (UW, Ge) | AnyData "webbed" tar shards | `<prefix>/<name>_seg48/split_all__IKDLA_48/{split_all.json, metadata_shared.json, chunk_*/episode_*/<camera>/<start>_<end>.tar}` (22 UW datasets, one task each) |
 | `yam_sim` | YAM Sim (Isaac twin) | LeRobot v3.0 | `s3://tri-yam/sim_datasets/<name>/lerobot/{meta,data,videos}` (raiden_sim2real scripted-expert datasets; H.264, one episode per video file) |
 
-Four adapter kinds cover these:
+Five adapter kinds cover these:
 
 - **`raiden`** — ZED `.svo2` recordings + `robot_data.npz` + `metadata.json`
   (optionally `calibration_results.json`).
@@ -37,6 +38,15 @@ Four adapter kinds cover these:
   at `<task>/<subdir>/` (`"subdir"` in the spec; folders without it are skipped).
 - **`lerobot_single`** — LeRobot v3.0, a **single** dataset at the prefix root;
   its tens of thousands of episodes are grouped by their internal task label.
+- **`webbed`** — Ge's AnyData `cv_webbed` export of the UW YAM datasets: one
+  dataset per task, listed by a `split_all.json` manifest; each episode is cut
+  into ~48-step tar shards per camera, each holding an rgb mp4 (one frame per
+  30 Hz step, muxed at 10 fps), a float32 depth `.npz` (mm), the lowdim `.npz`
+  (state/action (F,32), prompt) and intrinsics. The first view of an episode
+  downloads every shard (8 in parallel), re-times and concatenates the rgb into
+  one 30 fps mp4 per camera plus a turbo-colormapped depth mp4 (`<cam>_depth`),
+  and keeps a robot summary + the shard boundaries (ticks under the scrubber);
+  these go through the same cache tiers as every other derived clip.
 
 For each episode the viewer renders the video, a metadata panel, subtask
 annotations (where present), per-signal robot trajectory plots, and — for
@@ -118,18 +128,33 @@ Then open `http://<host-ip>:8080/`. Links are shareable via the URL hash
 | `RAIDEN_PORT` | `8080` | bind port |
 | `RAIDEN_CACHE_DIR` | `/tmp/raiden_viz_cache` | disk cache for decoded video + catalog summaries |
 | `RAIDEN_CACHE_MAX_GB` | `8` | cache size cap (LRU eviction; `0` disables) |
+| `RAIDEN_FEATURED_N` | `10` | episodes per task in the default (featured) browse list |
 | `RAIDEN_BUCKET_PROFILES` | `{}` | JSON map of bucket → AWS profile, for access-gated buckets |
 
 The set of sources is defined in `raiden_viz/config.py` (`SOURCES`). A source
 flagged `requires_access` auto-hides on hosts whose credentials can't read its
 bucket.
 
+### Featured episodes
+
+Every task's browse list shows a stable random sample of `RAIDEN_FEATURED_N`
+(default 10) episodes — the "featured" ones — with a "show all" link for the
+rest. The pick is seeded on `<source>/<task>`, stored once as a small JSON in the
+cache tiers, and is what `warm --featured` pre-renders, so a dataset's default
+view is instant while the rest still renders on demand.
+
 ### Pre-rendering clips (`raiden_viz.warm`)
 
 ```bash
 RAIDEN_DERIVED_BUCKET=tri-rse-yam-data-visualizer-prod-derived \
   uv run python -m raiden_viz.warm --source yam_sim --task plate_rack_front2_tbl   # or --all
+  uv run python -m raiden_viz.warm --source webbed --all --featured                # any source: featured only
 ```
+
+`--featured` works for every source kind: it renders each task's featured
+episodes (detail + every camera clip and poster) through the normal
+`episode_detail()`/`video_path()` path. Skip it for sources whose episodes are
+hundreds of MB each (ABC-130k, the raw YAM MCAPs) unless the box has the disk.
 
 Produces every episode × camera clip of a LeRobot task through the normal
 `video_path()` path and, with the derived tier configured, publishes it there — so
@@ -162,7 +187,7 @@ All dataset browsing is **source-scoped** under `/api/sources/{sid}/…`, where
 | `GET …/scan` | progress + accumulated records of an in-flight/finished scan (404 if none started) |
 | `GET …/task-teachers` | `{task: {teacher: {episodes, seconds}}}` + the robot-teacher roster, for the Tasks card's robot-teacher filter (reuses the cached teacher scan; `supported=false` where the format records no teacher) |
 | `GET …/tasks` | task names |
-| `GET …/tasks/{task}/episodes` | episode names (oldest first, matching raiden's own 0-based recording order) |
+| `GET …/tasks/{task}/episodes?all=` | the task's featured episodes (`total` = task size, `featured` = true when it is a sample); `all=1` lists every episode, oldest first (raiden's own 0-based recording order) |
 | `GET …/tasks/{task}/episode-facts` | `{episode: {timestamp, status}}` for the browse list; `{}` where a source has nothing cheap to report |
 | `GET …/tasks/{task}/episodes/{episode}` | instruction, status, metadata, calibration, camera list, robot trajectory summary, subtask annotations |
 | `GET …/tasks/{task}/episodes/{episode}/video?camera=&eye=left\|right` | decoded MP4 (transcodes + caches on first request) |
@@ -204,13 +229,14 @@ raiden_viz/
   app.py           FastAPI routes (top-level + source-scoped)
   config.py        env-var config + the SOURCES table
   sources.py       source adapters: RaidenSource, YamMcapSource,
-                   LeRobotSource, LeRobotSingleRootSource
+                   LeRobotSource, LeRobotSingleRootSource, WebbedSource
   catalog.py       cross-dataset catalog: background build + disk cache
   s3.py            S3 browse / fetch helpers
   svo.py           .svo2 (MCAP + H.264) -> MP4 decoder
   yam.py           YAM MCAP decode (video + robot state + annotations)
   lerobot.py       LeRobot v3.0 parse (parquet timeseries + video: probe/remux/transcode)
-  warm.py          CLI: pre-render a LeRobot task's clips into the cache tiers
+  webbed.py        AnyData webbed shards: manifest, tar members, rgb re-time/concat, depth colormap
+  warm.py          CLI: pre-render a LeRobot task's clips, or any source's featured episodes
   robot_data.py    robot_data.npz -> plot-ready series
   calib_overlay.py calibration-check overlay renderer
   cache.py         disk cache with per-key locks + LRU eviction

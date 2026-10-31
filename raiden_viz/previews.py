@@ -222,8 +222,32 @@ def build_yam(src, task: str, episode: str, workdir: Path) -> dict[str, tuple[st
     return out
 
 
+def build_webbed(src, task: str, episode: str, workdir: Path) -> dict[str, tuple[str, str]]:
+    """Webbed shards are ~48 steps each, so the FIRST shard of every camera is the preview's whole input:
+    one small tar per camera (a few MB), re-timed from its 10 fps mux to the 30 Hz step rate."""
+    from . import webbed
+    etag, parsed, shared, shards = src._shards(task, episode)
+    out = {}
+    key_prefix = f"{src._split_prefix(task)}/{webbed.seq_key(episode)}"
+    for cam in src._cameras(parsed, shared):
+        pj, pm = asset_names(f"{etag}_{episode}", cam)
+        if cache.remote_ready(pj) and cache.remote_ready(pm):
+            out[cam] = (pj, pm)
+            continue
+        tar = src._fetch_shard(key_prefix, cam, shards[0], workdir)
+        sh = webbed.read_shard(tar, workdir / cam / shards[0][:-4])
+        if sh["rgb"] is None:
+            continue
+        clip = workdir / f"{cam}_head.mp4"
+        webbed.concat_rgb([sh["rgb"]], clip)
+        out[cam] = publish_assets(f"{etag}_{episode}", cam, lambda a, b, c=clip: render_assets(c, a, b))
+    return out
+
+
 def build_for(src, task: str, episode: str, workdir: Path) -> dict[str, tuple[str, str]]:
     kind = src.spec.get("kind")
+    if kind == "webbed":
+        return build_webbed(src, task, episode, workdir)
     if kind in ("lerobot", "lerobot_single"):
         return build_lerobot(src, task, episode)
     if kind == "raiden":

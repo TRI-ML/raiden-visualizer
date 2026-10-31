@@ -951,13 +951,15 @@ function renderTaskList() {
   sorted.forEach((t) => {
     const row = el("div", "ov-task-row");
     if (t.preview) row.appendChild(previewBox(state.source, { task: t.task, ...t.preview }, { label: false }));
-    row.appendChild(el("div", "t-name", t.task));
+    const name = el("div", "t-name", t.task);
+    if (t.prompt) name.appendChild(el("div", "t-prompt", t.prompt));   // webbed datasets carry a language prompt
+    row.appendChild(name);
     const bar = el("div", "t-bar");
     const fill = el("i");
     fill.style.width = `${(t.episodes / maxEp) * 100}%`;
     bar.appendChild(fill);
     row.appendChild(bar);
-    row.appendChild(el("div", "t-count", `${t.episodes} ep`));
+    row.appendChild(el("div", "t-count", t.featured && t.featured < t.episodes ? `${t.featured} of ${t.episodes} ep` : `${t.episodes} ep`));
     // Per-task hours — filled in by updateHoursCard once /api/stats loads.
     const hrs = el("div", "t-hours", "…");
     hrs.dataset.task = t.task;
@@ -1135,7 +1137,7 @@ async function previewEpisodeList(task, wantAll) {
   }
   let eps = state.previewRecords.filter((e) => e.task === task).map((e) => e.episode);
   if (wantAll || eps.length < 2) {
-    eps = (await api(`${apiBase()}/tasks/${encodeURIComponent(task)}/episodes`)).episodes || [];
+    eps = (await api(`${apiBase()}/tasks/${encodeURIComponent(task)}/episodes?all=1`)).episodes || [];
     state.previewEpisodes[task] = eps;
   }
   return eps;
@@ -1661,8 +1663,10 @@ async function selectTask(task, autoEpisode = null) {
   $("#task-select").value = task;
   renderTaskHead(task);
   try {
-    const { episodes } = await api(`${apiBase()}/tasks/${encodeURIComponent(task)}/episodes`);
+    const { episodes, total, featured } = await api(`${apiBase()}/tasks/${encodeURIComponent(task)}/episodes`);
     state.episodes = episodes;
+    state.episodesTotal = total;
+    state.episodesFeatured = !!featured;          // a pre-rendered sample; the rest of the task loads on demand
     renderEpisodeList();
     loadEpisodeFacts(task);   // fills in timestamps/status when it lands
     if (autoEpisode && episodes.includes(autoEpisode)) {
@@ -1728,6 +1732,14 @@ function renderEpisodeList() {
   if (matched.length > shown.length) {
     const more = el("li", "ep-li-more", `+${matched.length - shown.length} more — refine search`);
     more.style.pointerEvents = "none";
+    list.appendChild(more);
+  }
+  if (state.episodesFeatured && !filter) {
+    const more = el("li", "ep-li-more ep-li-all", `${state.episodes.length} featured of ${state.episodesTotal} — show all`);
+    more.onclick = async () => {
+      const { episodes } = await api(`${apiBase()}/tasks/${encodeURIComponent(state.task)}/episodes?all=1`);
+      state.episodes = episodes; state.episodesFeatured = false; renderEpisodeList();
+    };
     list.appendChild(more);
   }
 }
@@ -1852,6 +1864,7 @@ function renderDetail(d) {
   $("#trace-toggle").classList.toggle("hidden", !hasTraces);
 
   buildCameraGrid(d.cameras || []);
+  renderShardTicks(d.shard_bounds_s || [], md.duration_s || 0);
   renderMeta(md, d);
   renderRollout(md);
   renderPlots(d.robot);
@@ -1978,6 +1991,20 @@ function makeVideoTile(c) {
 
   state.tiles.push(tileState);
   return tile;
+}
+
+// Shard boundaries (webbed datasets are stored as ~48-step tar shards): small ticks under the scrubber.
+function renderShardTicks(bounds, durationS) {
+  const box = $("#shard-ticks");
+  if (!box) return;
+  box.innerHTML = "";
+  box.classList.toggle("hidden", !bounds.length || !durationS);
+  bounds.forEach((s) => {
+    const tick = el("i");
+    tick.style.left = `${Math.min(100, (s / durationS) * 100)}%`;
+    tick.title = `shard boundary at ${s.toFixed(2)}s`;
+    box.appendChild(tick);
+  });
 }
 
 /* ---------------- Master transport: sync all tiles + plot cursor ---------------- */

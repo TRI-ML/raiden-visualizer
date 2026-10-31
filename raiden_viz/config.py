@@ -72,6 +72,27 @@ SOURCES = [
      "bucket": "tri-yam", "prefix": "sim_datasets", "subdir": "lerobot"},
 ]
 
+# Ge's "webbed" AnyData export of the UW YAM teleop corpora: one folder per dataset, a split_all.json
+# manifest + per-camera tar shards of ~48 steps (see webbed.py). One source; each dataset is a "task".
+WEBBED_DATASETS = [
+    "key_unlock_bc", "key_insertion_and_unlock", "self_repair_gripper_bc",
+    "self_repair_gripper_dagger_maniflow_r1_operator", "self_repair_gripper_dagger_maniflow_r2_operator",
+    "self_repair_gripper_yellow_screw_holder_bc", "plug_usb_bc", "plug_usb_new_gripper_dagger_r1",
+    "plug_white_usb_cable", "put_pen_into_bag_V3_newfinger", "put_pen_into_bag_merged",
+    "put_pen_into_bag_new_finger_dagger_maniflow_r1", "put_pen_into_bag_umigripper_dagger_pi05_r1",
+    "put_plate_to_rack_v4_521", "put_plate_to_rack_v4_neural_light_200", "kitchen_full",
+    "kitchen_full_no_put_plate", "kitchen_rack_combo", "kitchen_put_spoon", "stack_cup_neural_light",
+    "clean_up_table_V2_neural_light_1245", "organize_the_table_fork_spoon_merged",
+]
+SOURCES.append({"id": "webbed", "label": "YAM webbed (UW, Ge)", "kind": "webbed", "bucket": S3_BUCKET,
+                "prefix": "geyan/anydata/cv_webbed/videos", "split": "split_all__IKDLA_48",
+                "datasets": [f"{n}_seg48" for n in WEBBED_DATASETS]})
+
+# Episodes a task shows by default: a stable random sample (seeded by source/task, the pick is kept as a
+# small JSON so it never changes and can be pre-rendered: `python -m raiden_viz.warm --featured`).
+# "show all" lists the rest on demand.
+FEATURED_N = int(os.environ.get("RAIDEN_FEATURED_N", "10"))
+
 # Sources to drop entirely at startup, by id. A deployed container cannot reach a
 # source that depends on a local SSO profile (see BUCKET_PROFILES): get_sources()
 # would filter it anyway, but only after a live S3 probe against a bucket the task

@@ -515,8 +515,12 @@ def list_tasks(sid: str):
 
 
 @app.get("/api/sources/{sid}/tasks/{task}/episodes")
-def list_episodes(sid: str, task: str):
-    return {"task": task, "episodes": _src(sid).list_episodes(task)}
+def list_episodes(sid: str, task: str, all: bool = Query(False)):
+    """The task's featured episodes (config.FEATURED_N, a stable sample) by default; ``all=1`` lists every one."""
+    src = _src(sid)
+    every = src.list_episodes(task)
+    eps = every if all else src.featured_episodes(task)
+    return {"task": task, "episodes": eps, "total": len(every), "featured": len(eps) < len(every)}
 
 
 # Not nested under /episodes/ so it can't be mistaken for an episode named "facts".
