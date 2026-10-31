@@ -370,7 +370,8 @@ function previewBox(sid, pv, { label = true } = {}) {
   if (PV_OBSERVER) { img.dataset.src = urls.poster; PV_OBSERVER.observe(img); }
   else { img.loading = "lazy"; img.src = urls.poster; }
   box.appendChild(img);
-  if (label) box.appendChild(el("div", "pv-cam", prettyCam(pv.camera)));
+  // camera name on the card preview hidden (user, 2026-10-31: "we don't need the camera thing in the preview")
+  // if (label) box.appendChild(el("div", "pv-cam", prettyCam(pv.camera)));
   let video = null;
   const play = () => {
     if (video || box.classList.contains("empty")) return;
@@ -517,8 +518,8 @@ async function renderCatalog() {
       <div class="cat-row">${building
         ? '<span class="cat-badge building">⟳ computing…</span>'
         : failed ? failBadge(c.error) : annBadge(c.annotations)}</div>
-      <div class="cat-cams subtle mono">${cams}</div>
-      ${c.bucket ? `<div class="cat-prefix subtle mono">s3://${esc(c.bucket)}/${esc(c.prefix ?? "")}</div>` : ""}`;
+      `;   // camera list + s3 path hidden on the card (user, 2026-10-31); `cams` kept for the title below
+    card.title = `${cams}${c.bucket ? ` · s3://${c.bucket}/${c.prefix ?? ""}` : ""}`;
     // Preview chosen at build time (stored on the card): poster now, clip on hover.
     const head = card.querySelector(".cat-card-head");
     head.insertAdjacentElement("afterend", previewBox(c.id, c.preview));
@@ -910,10 +911,11 @@ function drawTeachers(metric) {
 async function renderOverview() {
   try {
     const ov = await api(`${apiBase()}/overview`);
-    $("#s3-root").textContent = `s3://${ov.bucket}/${ov.prefix}`;
+    // s3 path hidden from the sidebar foot and the overview Source card (user, 2026-10-31); kept as a title.
+    $("#s3-root").textContent = "";
     $("#ov-path").innerHTML = "";
-    $("#ov-path").appendChild(el("div", "ov-uri", `s3://${ov.bucket}/${ov.prefix}`));
-    $("#ov-path").appendChild(el("div", "ov-region", `region ${ov.region}`));
+    $("#ov-path").closest(".ov-path-card").hidden = true;
+    $("#ov-path").closest(".ov-path-card").title = `s3://${ov.bucket}/${ov.prefix} · region ${ov.region}`;
 
     const stats = $("#ov-stats");
     stats.innerHTML = "";
