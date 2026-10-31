@@ -25,6 +25,10 @@ TASK = {"task": "kitchen_put_spoon_seg48", "episodes": 2, "featured": 2, "prompt
 DETAIL = {"task": TASK["task"], "episode": "chunk_000__episode_000001", "instruction": "put the spoon in the drawer", "status": None,
           "cameras": [{"name": "cam_high", "has_video": True, "eyes": ["left"]}, {"name": "cam_left_wrist", "has_video": True, "eyes": ["left"]}],
           "robot": None, "metadata": {"duration_s": 16.1}, "shard_bounds_s": [1.5, 3.0], "calibration": None, "annotations": []}
+# episode 3 carries subtask (Argus) labels: {t, text} transitions, as the yam / lerobot adapters emit them
+ANNOTATED = {**DETAIL, "episode": "chunk_000__episode_000003",
+             "annotations": [{"t": 0.5, "text": "reach for the spoon"}, {"t": 6.0, "text": "grasp the spoon"},
+                             {"t": 11.0, "text": "place it in the drawer"}]}
 
 
 def _route(route):
@@ -39,6 +43,7 @@ def _route(route):
     elif path.endswith("/episodes"): body = {"episodes": ["chunk_000__episode_000001", "chunk_000__episode_000003"], "total": 2, "featured": False}
     elif path.endswith("/episode-facts"): body = {"facts": {}}
     elif path.endswith("/episodes/chunk_000__episode_000001"): body = DETAIL
+    elif path.endswith("/episodes/chunk_000__episode_000003"): body = ANNOTATED
     elif path.endswith("/video") or "/video?" in url: return route.fulfill(status=404, body="")
     elif path.startswith("api/"): body = {}
     else: return route.continue_()
@@ -132,4 +137,26 @@ def test_episode_view_renders_camera_grid_and_generic_names(browser, site):
     page.wait_for_selector("#ov-tag-filter .facet-chip")
     assert "bimanual" in page.locator("#ov-tag-filter").inner_text()
     assert "null" not in page.locator("#ov-task-list").inner_text()
+    page.close()
+
+
+def test_language_timeline_syncs_with_the_clock(browser, site):
+    page = _open(browser, site, "#demo/kitchen_put_spoon_seg48/chunk_000__episode_000001")
+    page.wait_for_selector("#camera-grid .cam-tile")
+    assert not page.locator("#annotations-card").is_visible()       # no labels: the card stays hidden
+    page.close()
+    page = _open(browser, site, "#demo/kitchen_put_spoon_seg48/chunk_000__episode_000003")
+    page.wait_for_selector("#lang-track .lang-seg")
+    assert page.locator("#lang-track .lang-seg").count() == 3
+    assert page.locator("#lang-now").inner_text() == ""              # t=0 is before the first label
+    page.evaluate("drawAllCursors(1)")
+    assert "reach" in page.locator("#lang-now").inner_text()
+    page.evaluate("drawAllCursors(7)")                               # the transport tick drives the timeline
+    assert "grasp" in page.locator("#lang-now").inner_text()
+    assert page.locator("#lang-track .lang-seg.active").get_attribute("data-i") == "1"
+    head_x = page.evaluate("parseFloat(document.querySelector('#lang-track .lang-head').style.left)")
+    assert abs(head_x - 100 * 7 / 16.1) < 0.5
+    page.locator("#lang-track .lang-seg").nth(2).click()             # clicking a segment seeks to its start
+    assert "drawer" in page.locator("#lang-now").inner_text()
+    page.screenshot(path=str(SHOTS / "argus_timeline.png"))
     page.close()
