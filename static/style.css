@@ -288,15 +288,17 @@ select option { background: var(--bg-elev); color: var(--text); }
 
 .ov-task-list { padding: 6px 8px 10px; }
 .ov-task-list .empty-note { padding: 10px 12px; }
+/* fixed columns so every row lines up: preview | name | bar | episodes | hours (user, 2026-10-31) */
 .ov-task-row {
-  display: flex; align-items: center; gap: 14px; padding: 11px 12px;
+  display: grid; grid-template-columns: 64px minmax(0, 1fr) 120px 62px 56px; align-items: center; gap: 14px; padding: 11px 12px;
   border-radius: var(--radius-sm); cursor: pointer; transition: background 0.12s;
 }
+.ov-task-row .t-nopv { width: 64px; }
 .ov-task-row:hover { background: var(--bg-hover); }
-.ov-task-row .t-name { font-weight: 600; flex: 1; }
+.ov-task-row .t-name { font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
 .ov-task-row .t-count { font-size: 12px; color: var(--text-dim); font-family: var(--mono); min-width: 62px; text-align: right; }
 .ov-task-row .t-hours { font-size: 12px; color: var(--accent); font-family: var(--mono); min-width: 56px; text-align: right; }
-.ov-task-row .t-bar { flex: none; width: 120px; height: 6px; background: var(--bg); border-radius: 4px; overflow: hidden; }
+.ov-task-row .t-bar { width: 120px; height: 6px; background: var(--bg); border-radius: 4px; overflow: hidden; }
 .ov-task-row .t-bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent-2)); }
 .ov-task-row .t-latest { font-size: var(--fs-small); color: var(--text-faint); font-family: var(--mono); min-width: 92px; text-align: right; }
 
@@ -726,7 +728,7 @@ select option { background: var(--bg-elev); color: var(--text); }
 .cat-card .pv-box { margin-bottom: 10px; }
 .cat-strip { display: flex; gap: 4px; margin: -4px 0 8px; }
 .cat-strip .pv-box { flex: 1; aspect-ratio: 16 / 9; border-radius: 4px; }
-.ov-task-row .pv-box { width: 64px; flex: none; border-radius: 4px; margin-right: 8px; }
+.ov-task-row .pv-box { width: 64px; border-radius: 4px; }
 .task-head { margin-top: 8px; }
 .task-head .pv-box { margin-bottom: 6px; }
 .task-head .facts { font-size: var(--fs-small); color: var(--text-dim); font-family: var(--mono); line-height: 1.5; word-break: break-word; }
