@@ -91,7 +91,7 @@ SOURCES.append({"id": "webbed", "label": "YAM webbed (UW, Ge)", "kind": "webbed"
 # Episodes a task shows by default: a stable random sample (seeded by source/task, the pick is kept as a
 # small JSON so it never changes and can be pre-rendered: `python -m raiden_viz.warm --featured`).
 # "show all" lists the rest on demand.
-FEATURED_N = int(os.environ.get("RAIDEN_FEATURED_N", "10"))
+FEATURED_N = int(os.environ.get("RAIDEN_FEATURED_N", "5"))   # 5 per task (user, 2026-10-31); was 10
 
 # Sources to drop entirely at startup, by id. A deployed container cannot reach a
 # source that depends on a local SSO profile (see BUCKET_PROFILES): get_sources()
