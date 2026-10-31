@@ -145,7 +145,8 @@ def list_sources():
     """The datasets this viewer can browse. Only sources actually readable on
     this host are listed (access-gated ones auto-hide where creds are missing)."""
     available = sources.get_sources(config.SOURCES)  # access-filtered registry
-    return {"sources": [{"id": s["id"], "label": s["label"], "kind": s["kind"], "origin": s.get("origin")}
+    return {"sources": [{"id": s["id"], "label": s["label"], "kind": s["kind"], "origin": s.get("origin"),
+                         "embodiments": s.get("embodiments")}
                         for s in config.SOURCES if s["id"] in available]}
 
 

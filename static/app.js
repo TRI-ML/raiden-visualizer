@@ -256,6 +256,8 @@ function showCatalog() {
 
 // where a dataset comes from (config.SOURCES[].origin): shown as a chip on the card and the dataset page
 const ORIGIN_LABEL = { tri: "TRI", open: "Open source", purchased: "Purchased" };
+// robots in the set (config.SOURCES[].embodiments, else derived from LeRobot robot_type by the stats pass)
+const embodimentPills = (list) => (list || []).map((e) => `<span class="cat-fmt cat-embod">${esc(e)}</span>`).join("");
 const CAT_KIND_LABEL = {
   raiden: "ZED .svo2", yam: "MCAP", lerobot: "LeRobot v3.0",
   lerobot_single: "LeRobot v3.0",
@@ -508,7 +510,7 @@ async function renderCatalog() {
     card.innerHTML = `
       <div class="cat-card-head">
         <div class="cat-card-title">${c.label}</div>
-        <div class="cat-pills"><span class="cat-fmt">${fmt}</span>${ORIGIN_LABEL[c.origin] ? `<span class="cat-fmt cat-origin ${c.origin}">${ORIGIN_LABEL[c.origin]}</span>` : ""}</div>
+        <div class="cat-pills"><span class="cat-fmt">${fmt}</span>${ORIGIN_LABEL[c.origin] ? `<span class="cat-fmt cat-origin ${c.origin}">${ORIGIN_LABEL[c.origin]}</span>` : ""}${embodimentPills(c.embodiments)}</div>
       </div>
       <div class="cat-metrics">
         <div><b>${(c.num_episodes ?? "—").toLocaleString?.() ?? c.num_episodes ?? "—"}</b><span>episodes</span></div>
@@ -916,6 +918,7 @@ async function renderOverview() {
     const chip = $("#ov-origin");
     chip.textContent = ORIGIN_LABEL[src && src.origin] || "";
     chip.hidden = !chip.textContent;
+    $("#ov-embod").innerHTML = embodimentPills(src && src.embodiments);   // the derived list lands with the stats
     // the raw-data path lives in the sidebar foot (user, 2026-10-31); the overview Source card stays hidden
     $("#s3-root").textContent = `s3://${ov.bucket}/${ov.prefix}`;
     $("#s3-root").title = `s3://${ov.bucket}/${ov.prefix} · region ${ov.region}`;
@@ -1315,6 +1318,8 @@ function fillSummaryTiles(stats) {
   if (!numEl) return;
   const s = stats.summary;
   const set = (id, v) => { const n = $(id); if (n) n.textContent = v; };
+  const src = (state.sources || []).find((x) => x.id === state.source);
+  if (s && !(src && src.embodiments) && s.embodiments && s.embodiments.length) $("#ov-embod").innerHTML = embodimentPills(s.embodiments);
   if (!s) {
     ["#ov-hours-num", "#ov-median-num", "#ov-eptask-num", "#ov-annot-num"].forEach((id) => set(id, "—"));
     $("#ov-hours-lbl").textContent = stats.computing ? "Hours · not computed yet" : "Hours";

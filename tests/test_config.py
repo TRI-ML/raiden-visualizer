@@ -29,3 +29,10 @@ def test_every_source_declares_its_origin():
     from raiden_viz import config
     assert {s.get("origin") for s in config.SOURCES} <= {"tri", "open", "purchased"}
     assert all(s.get("origin") for s in config.SOURCES), [s["id"] for s in config.SOURCES if not s.get("origin")]
+
+
+def test_embodiments_are_lists_where_declared():
+    from raiden_viz import config
+    declared = [s for s in config.SOURCES if "embodiments" in s]
+    assert declared and all(isinstance(s["embodiments"], list) and s["embodiments"] for s in declared)
+    assert all("embodiments" not in s for s in config.SOURCES if s["id"] == "worldengine"), "worldengine derives its mix"
