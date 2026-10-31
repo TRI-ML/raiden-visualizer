@@ -113,7 +113,7 @@ class TeacherBuilder:
             d = self._data.get(sid)
         if d is not None:
             return d
-        disk = cache.get_json(_cache_key(sid))
+        disk = cache.get_json(_cache_key(sid), remote=True)   # survives a container, like the catalog cards
         if disk is not None and not disk.get("__invalidated__"):
             with self._lock:
                 self._data[sid] = disk
@@ -137,7 +137,7 @@ class TeacherBuilder:
                       "days": {}, "tasks": {}, "teachers": [], "totals_by_teacher": {},
                       "totals": {"episodes": 0, "undated": 0}, "span": {"first": None, "last": None},
                       "built_ok": False, "building": False, "error": str(e)}
-        cache.put_json(_cache_key(sid), result)
+        cache.put_json(_cache_key(sid), result, remote=True)
         with self._lock:
             self._data[sid] = result
             self._running[sid] = False
@@ -154,4 +154,4 @@ class TeacherBuilder:
     def invalidate(self, sid: str) -> None:
         with self._lock:
             self._data.pop(sid, None)
-        cache.put_json(_cache_key(sid), {"__invalidated__": True})
+        cache.put_json(_cache_key(sid), {"__invalidated__": True}, remote=True)

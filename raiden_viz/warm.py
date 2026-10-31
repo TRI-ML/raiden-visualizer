@@ -24,7 +24,7 @@ import argparse
 import sys
 import time
 
-from . import cache, config, sources
+from . import cache, catalog, config, contrib, raiden_teachers, sources
 
 
 def main(argv=None) -> int:
@@ -40,7 +40,9 @@ def main(argv=None) -> int:
 
     src = sources.get_source(config.SOURCES, args.source)
     if args.featured:
-        return warm_featured(src, src.list_tasks() if args.all else args.task, args.workers)
+        rc = warm_featured(src, src.list_tasks() if args.all else args.task, args.workers)
+        warm_meta(src)
+        return rc
     if not isinstance(src, sources.LeRobotSource):
         ap.error(f"{args.source} is kind {src.spec.get('kind')!r}; warm handles lerobot sources "
                  f"(use --featured for the others)")
@@ -109,6 +111,27 @@ def warm_featured(src, tasks, workers: int = 2) -> int:
                     print(f"[warm {task}] FAILED {err}", file=sys.stderr, flush=True)
                 print(f"[warm {task}] {i}/{len(eps)} featured episodes, {time.perf_counter() - t0:.0f}s", flush=True)
     return 1 if failed else 0
+
+
+def warm_meta(src) -> None:
+    """Pre-compute what a dataset page reads before any clip: the overview (task rows), the sampled stats pass
+    (hours / charts), the upload-activity calendar and the per-day teacher rollup, plus the catalog card. All of
+    them persist in the derived tier, so the hosted app's first paint after a deploy is instant instead of a
+    cross-region S3 walk. Each step is independent; a failure is reported and the rest still run."""
+    spec = src.spec
+    steps = [("overview", src.overview), ("stats", src.stats),
+             ("contrib", lambda: cache.put_json(contrib._cache_key(spec["id"]), contrib.build_days(spec, src), remote=True)),
+             ("catalog card", lambda: catalog.CatalogBuilder().build_deep(spec["id"], src))]
+    if raiden_teachers.supports(spec):
+        steps.append(("teachers", lambda: cache.put_json(raiden_teachers._cache_key(spec["id"]),
+                                                         raiden_teachers.build_teachers(spec, src), remote=True)))
+    for name, fn in steps:
+        t0 = time.perf_counter()
+        try:
+            fn()
+            print(f"[warm {spec['id']}] {name} ready, {time.perf_counter() - t0:.0f}s", flush=True)
+        except Exception as ex:  # noqa: BLE001 - one slow/failed rollup must not stop the others
+            print(f"[warm {spec['id']}] {name} FAILED: {type(ex).__name__}: {ex}", file=sys.stderr, flush=True)
 
 
 if __name__ == "__main__":

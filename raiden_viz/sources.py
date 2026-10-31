@@ -117,8 +117,9 @@ class Source:
         self.spec = spec
         # Memoised overview(): (built_at, value). Sources live in the module-level
         # _SOURCES cache, so this survives for the life of the process.
-        self._overview_cached: tuple[float, dict] | None = None
         self._overview_lock = threading.Lock()
+        # per-source JSON memos (overview, stats): {key: {"value", "thread", "skip_persisted"}}, see _swr
+        self._swr_state: dict[str, dict] = {}
 
     # ---- browsing (shared) ----
     def list_tasks(self) -> list[str]:
@@ -205,21 +206,19 @@ class Source:
 
     # ---- aggregates (shared, built on the above) ----
     def overview(self) -> dict:
-        """Cheap per-source facts, memoised for OVERVIEW_TTL_S.
+        """Cheap per-source facts: in-process memo → derived-tier blob → inline build (see _swr).
 
         _build_overview walks every task listing every episode — about 130 paginated
         LIST calls cross-region on the largest source — and this is called on every
-        dataset click as well as by every catalog card build, so it must not be
-        recomputed each time.
+        dataset click as well as by every catalog card build. The blob survives a
+        container, so a fresh deploy answers the first dataset click instantly.
 
         Returns a SHALLOW COPY: the /overview route adds a "region" key to what it
         gets back, and that must not accumulate on the cached object.
         """
-        now = time.time()
-        with self._overview_lock:
-            cached = self._overview_cached
-            if cached is not None and now - cached[0] < config.OVERVIEW_TTL_S:
-                return dict(cached[1])
+        return self._swr("overview_v2", self._build_overview_with_previews)
+
+    def _build_overview_with_previews(self) -> dict:
         built = self._build_overview()
         # Small precomputed previews (poster + 5 s clip names) per task, when the
         # preview warm has run for this source; one JSON read, memoized.
@@ -227,9 +226,54 @@ class Source:
         for row in built.get("tasks", []):
             if row.get("task") in pv:
                 row["preview"] = pv[row["task"]]
+        return built
+
+    # ---- stale-while-revalidate for per-source JSON (overview, stats) -----------------
+
+    def _swr_blob(self, key: str) -> str:
+        return f"{key}_{self.id}.json"
+
+    def _swr(self, key: str, build) -> dict:
+        """Serve the memoised value; on a cold container restore the derived-tier blob so
+        the first dataset click is instant; a value older than OVERVIEW_TTL_S is served
+        as is while ONE background thread rebuilds it; only a source with nothing cached
+        anywhere builds inline. Returns a shallow copy."""
+        now = time.time()
         with self._overview_lock:
-            self._overview_cached = (now, built)
-        return dict(built)
+            st = self._swr_state.setdefault(key, {})
+            cur = st.get("value")
+            if cur is None and not st.get("skip_persisted"):
+                saved = cache.get_json(self._swr_blob(key), remote=True)
+                if isinstance(saved, dict) and isinstance(saved.get("built_at"), (int, float)):
+                    cur = st["value"] = saved
+            fresh = cur is not None and now - float(cur["built_at"]) < config.OVERVIEW_TTL_S
+            th = st.get("thread")
+            running = th is not None and th.is_alive()
+            if cur is not None and not fresh and not running:
+                th = threading.Thread(target=self._swr_build, args=(key, build), daemon=True,
+                                      name=f"swr-{key}-{self.id}")
+                st["thread"] = th
+                th.start()
+        if cur is not None:
+            return dict(cur)
+        return dict(self._swr_build(key, build))
+
+    def _swr_build(self, key: str, build) -> dict:
+        built = build()
+        built["built_at"] = time.time()
+        cache.put_json(self._swr_blob(key), built, remote=True)
+        with self._overview_lock:
+            st = self._swr_state.setdefault(key, {})
+            st["value"] = built
+            st["skip_persisted"] = False
+        return built
+
+    def _swr_invalidate(self, key: str) -> None:
+        """Forget the memo AND skip the persisted copy on the next call (the data changed)."""
+        with self._overview_lock:
+            st = self._swr_state.setdefault(key, {})
+            st["value"] = None
+            st["skip_persisted"] = True
 
     # ---- small per-task previews (see previews.py) ----------------------------------
 
@@ -258,7 +302,7 @@ class Source:
                        {"v": previews.PREVIEWS_V, "built_at": time.time(), "tasks": kept}, remote=True)
         with self._overview_lock:
             self._previews_cached = kept
-            self._overview_cached = None
+        self._swr_invalidate("overview_v2")
         return len(gone)
 
     def preview_warm(self, tasks=None, progress=None, only_missing: bool = True) -> dict:
@@ -289,7 +333,7 @@ class Source:
                                    remote=True)
                     with self._overview_lock:
                         self._previews_cached = current
-                        self._overview_cached = None      # overview rows pick the entry up
+                    self._swr_invalidate("overview_v2")      # overview rows pick the entry up
             except Exception as ex:  # noqa: BLE001
                 log.exception("preview warm failed for %s/%s", self.id, task)
                 failed.append((task, f"{type(ex).__name__}: {ex}"))
@@ -388,8 +432,16 @@ class Source:
         return pairs, total
 
     def stats(self, full: bool = False) -> dict:
-        """Synchronous stats pass (used for the charts). For a full scan of a huge
-        source prefer scan_start()/scan_snapshot(), which stream progress."""
+        """Stats pass for the charts. The default (sampled) pass is served through _swr:
+        memo → derived-tier blob → inline, refreshed in the background when stale, so a
+        dataset page does not re-read STATS_MAX episode records on every click or after
+        every deploy. ``full=True`` (small sources) is always computed now. For a full
+        scan of a huge source prefer scan_start()/scan_snapshot(), which stream progress."""
+        if full:
+            return self._stats_now(True)
+        return self._swr("stats_v1", lambda: self._stats_now(False))
+
+    def _stats_now(self, full: bool) -> dict:
         pairs, total = self._stat_pairs(full)
         episodes = []
         with ThreadPoolExecutor(max_workers=32) as pool:
