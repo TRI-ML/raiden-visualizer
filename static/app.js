@@ -1953,9 +1953,11 @@ function buildCameraGrid(cameras) {
   state.duration = 0;
 
   if (!cameras.length) {
+    grid.style.gridTemplateColumns = "";
     grid.appendChild(makeCamTile(null, "No cameras recorded for this episode."));
     return;
   }
+  grid.style.gridTemplateColumns = `repeat(${Math.min(cameras.length, 4)}, minmax(0, 1fr))`;   // one row, up to 4 across
 
   // One tile per camera, in a stable order. Stub cameras (no video) render a
   // graceful placeholder rather than a broken player.
@@ -2323,37 +2325,33 @@ function renderRollout(md) {
   if (!shown) notAvailable(body, "No rollout parameters recorded for this episode.");
 }
 
-// Language timeline: the subtask / Argus labels ({t, text} transitions from the episode detail) become
-// segments [t_i, t_{i+1}) laid out on one track and synced to the video clock like the plot cursors
-// (updateLangTimeline runs from drawAllCursors). Hidden when the episode has no labels.
+// Language track: the subtask / Argus labels ({t, text} transitions from the episode detail) become colored
+// segments [t_i, t_{i+1}) on a track above the scrubber (same width, so the playhead lines up with it), synced to
+// the video clock like the plot cursors (updateLangTimeline runs from drawAllCursors). One color per distinct label;
+// the text shows once, under the transport. Hidden when the episode has no labels.
 function renderAnnotations(anns, durationS) {
-  const card = $("#annotations-card"), body = $("#annotations-body"), track = $("#lang-track");
-  if (!card) return;
+  const track = $("#lang-track"), now = $("#lang-now");
+  if (!track) return;
   const timed = anns.filter((a) => a.t != null).sort((a, b) => a.t - b.t);
-  card.classList.toggle("hidden", !timed.length);
+  track.classList.toggle("hidden", !timed.length);
+  now.classList.toggle("hidden", !timed.length);
+  track.innerHTML = "";
+  now.textContent = "";
   if (!timed.length) { state.langSegs = []; return; }
   const last = timed[timed.length - 1].t;
   const dur = durationS > last ? durationS : last + 1;   // no duration known: give the last label a second
   state.langSegs = timed.map((a, i) => ({ start: a.t, end: i + 1 < timed.length ? timed[i + 1].t : dur, text: a.text || "" }));
   state.langDur = dur;
-  $("#lang-count").textContent = `${state.langSegs.length} segments`;
-  track.innerHTML = "";
-  body.innerHTML = "";
-  const seek = (s) => { seekAll(s.start); updateTransportUI(s.start); drawAllCursors(s.start); drawAllTraces(s.start); };
+  const labels = [...new Set(state.langSegs.map((s) => s.text))];
   state.langSegs.forEach((s, i) => {
-    const bar = el("div", "lang-seg", s.text);
+    const bar = el("div", "lang-seg");
     bar.style.left = `${(100 * s.start) / dur}%`;
     bar.style.width = `${(100 * (s.end - s.start)) / dur}%`;
+    bar.style.background = PALETTE[labels.indexOf(s.text) % PALETTE.length];
     bar.title = `${s.start.toFixed(1)}–${s.end.toFixed(1)} s · ${s.text}`;
     bar.dataset.i = i;
-    bar.onclick = () => seek(s);
+    bar.onclick = () => { seekAll(s.start); updateTransportUI(s.start); drawAllCursors(s.start); drawAllTraces(s.start); };
     track.appendChild(bar);
-    const row = el("div", "ann-row");
-    row.dataset.i = i;
-    row.appendChild(el("span", "ann-t mono", `${s.start.toFixed(1)}s`));
-    row.appendChild(el("span", "ann-text", s.text));
-    row.onclick = () => seek(s);
-    body.appendChild(row);
   });
   track.appendChild(el("div", "lang-head"));
   updateLangTimeline(currentTime());
@@ -2367,7 +2365,7 @@ function updateLangTimeline(secs) {
   segs.forEach((s, i) => { if (secs >= s.start && secs < s.end) active = i; });
   if (active < 0 && secs >= segs[segs.length - 1].end) active = segs.length - 1;
   $("#lang-now").textContent = active >= 0 ? segs[active].text : "";
-  document.querySelectorAll("#lang-track .lang-seg, #annotations-body .ann-row")
+  document.querySelectorAll("#lang-track .lang-seg")
     .forEach((n) => n.classList.toggle("active", Number(n.dataset.i) === active));
   const head = $("#lang-track .lang-head");
   if (head) head.style.left = `${Math.min(100, Math.max(0, (100 * secs) / state.langDur))}%`;
