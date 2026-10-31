@@ -30,6 +30,7 @@ from pathlib import Path
 
 import logging
 
+from botocore.exceptions import ClientError
 
 from . import cache, calib_overlay, config, fk, lerobot, previews, robot_data, s3, svo, webbed, yam
 
@@ -384,11 +385,19 @@ class Source:
                 eps = self.featured_episodes(task)   # a featured episode: its clips are what warm pre-renders anyway
                 if not eps:
                     continue
-                with tempfile.TemporaryDirectory(dir=str(config.CACHE_DIR)) as d:
-                    assets = previews.build_for(self, task, eps[0], Path(d))
-                entry = previews.entry_from(eps[0], assets)
+                entry, err = None, "no camera frames"
+                for ep in eps:                         # a stray/broken first pick must not cost the task its preview
+                    try:
+                        with tempfile.TemporaryDirectory(dir=str(config.CACHE_DIR)) as d:
+                            assets = previews.build_for(self, task, ep, Path(d))
+                        entry = previews.entry_from(ep, assets)
+                    except Exception as ex:  # noqa: BLE001
+                        log.warning("preview for %s/%s/%s failed: %s", self.id, task, ep, ex)
+                        err = f"{type(ex).__name__}: {ex}"
+                    if entry is not None:
+                        break
                 if entry is None:
-                    failed.append((task, "no camera frames"))
+                    failed.append((task, err))
                 else:
                     current[task] = entry
                     cache.put_json(previews.blob_name(self.id),
@@ -681,7 +690,9 @@ class RaidenSource(Source):
 
     def episode_detail(self, task, episode):
         prefix = self._ep_prefix(task, episode)
-        metadata = s3.get_json(f"{prefix}/metadata.json", bucket=self.bucket)
+        # stray recordings (aborted dagger/test runs) have cameras but no metadata.json: show them without it
+        metadata = (s3.get_json(f"{prefix}/metadata.json", bucket=self.bucket)
+                    if s3.try_head(f"{prefix}/metadata.json", bucket=self.bucket) else {})
 
         calibration = None
         if s3.try_head(f"{prefix}/calibration_results.json", bucket=self.bucket):
@@ -1235,7 +1246,16 @@ class LeRobotSource(Source):
         it down to just that episode's rows."""
         key = meta["info"]["data_path"].format(
             chunk_index=row["data_chunk"], file_index=row["data_file"])
-        tbl = lerobot.read_table(s3.get_bytes(f"{self._task_root(task)}/{key}", bucket=self.bucket))
+        try:
+            raw = s3.get_bytes(f"{self._task_root(task)}/{key}", bucket=self.bucket)
+        except ClientError as e:
+            if e.response.get("Error", {}).get("Code") not in ("NoSuchKey", "404"):
+                raise
+            # Some exports (WorldEngine) point episodes at data files that were never uploaded while
+            # their videos exist: show the episode without traces instead of failing it.
+            log.warning("%s/%s: data parquet missing (%s); detail without traces", task, row["episode_index"], key)
+            return lerobot.empty_table()
+        tbl = lerobot.read_table(raw)
         return lerobot.filter_episode(tbl, row["episode_index"])
 
     def episode_detail(self, task: str, episode: str) -> dict:
@@ -1311,7 +1331,9 @@ class LeRobotSource(Source):
             #    slice): transcode the window to H.264. Cutting a slice with -c copy
             #    would snap to keyframes, so a slice is never stream-copied.
             cache.evict(headroom_gb=min(2.0, obj.size / 1024**3 * 1.5))
-            tmp = cache.path_for(f"lerobot_{obj.etag}_{camera}.src.mp4.tmp{os.getpid()}")
+            # per pid AND thread: the warm runs several episodes of one packed chunk in parallel threads, and a
+            # shared temp name let one thread truncate/unlink the file another thread's ffmpeg was reading
+            tmp = cache.path_for(f"lerobot_{obj.etag}_{camera}.src.mp4.tmp{os.getpid()}_{threading.get_ident()}")
             try:
                 s3.download(s3key, tmp, bucket=self.bucket)
                 if self._can_stream_copy(tmp, from_ts, to_ts, info.get("fps")):

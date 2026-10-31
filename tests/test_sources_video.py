@@ -76,3 +76,14 @@ def test_stub_file_still_raises(raiden, monkeypatch):
     )
     with pytest.raises(ValueError):
         raiden.video_path("task", "ep", "cam0", "left")
+
+
+def test_raiden_detail_tolerates_a_missing_metadata_json(monkeypatch):
+    """Stray recordings (aborted dagger/test runs) have cameras but no metadata.json."""
+    from raiden_viz import sources
+    src = sources.RaidenSource({"id": "r", "label": "R", "kind": "raiden", "bucket": "b", "prefix": "p"})
+    monkeypatch.setattr(sources.s3, "try_head", lambda key, bucket=None: None)
+    monkeypatch.setattr(sources.s3, "get_json", lambda key, bucket=None: pytest.fail(f"read {key}"))
+    monkeypatch.setattr(sources.s3, "list_files", lambda prefix, bucket=None: [])
+    d = src.episode_detail("HangMugs_dagger", "2026-10-19")
+    assert d["metadata"] == {} and d["instruction"] is None and d["cameras"] == []
