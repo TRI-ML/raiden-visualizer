@@ -805,6 +805,36 @@ class RaidenSource(Source):
         }
 
 
+class RolloutSource(RaidenSource):
+    """yam-eval policy rollouts: the raiden recording layout (metadata.json + cameras/*.svo2 + robot_data.npz)
+    nested under `<run>_<step>/<task>/rollout_NNNN` (Vibe, depth 1) or `<formal_id>/<run>_<step>/<task>/rollout_NNNN`
+    (ranked evals, depth 2). One task spans every model / eval, so the episode id carries the lead dirs:
+    `<lead>::<lead>::rollout_NNNN` ("::" never appears in run or eval ids and survives the URL path)."""
+    SEP = "::"
+
+    def __init__(self, spec):
+        super().__init__(spec)
+        self.depth = int(spec.get("depth", 1))
+
+    def _leads(self) -> list[str]:
+        leads = [""]
+        for _ in range(self.depth):
+            leads = [f"{lead}/{d}" if lead else d
+                     for lead in leads for d in s3.list_dirs(f"{self.prefix}/{lead}".rstrip("/"), bucket=self.bucket)]
+        return leads
+
+    def list_tasks(self) -> list[str]:
+        return sorted({t for lead in self._leads() for t in s3.list_dirs(f"{self.prefix}/{lead}", bucket=self.bucket)})
+
+    def list_episodes(self, task: str) -> list[str]:
+        return sorted(self.SEP.join(lead.split("/") + [r])
+                      for lead in self._leads() for r in s3.list_dirs(f"{self.prefix}/{lead}/{task}", bucket=self.bucket))
+
+    def _ep_prefix(self, task, episode):
+        *lead, rollout = episode.split(self.SEP)
+        return "/".join([self.prefix, *lead, task, rollout])
+
+
 class YamMcapSource(Source):
     """One MCAP per episode. Download the big MCAP once, extract all small
     artifacts (per-camera mp4 + robot/instruction json), cache them, drop the MCAP.
@@ -1743,7 +1773,7 @@ class WebbedSource(Source):
                 "timestamp": obj.last_modified if obj else None, "has_annotations": None}
 
 
-_KINDS = {"raiden": RaidenSource, "yam": YamMcapSource, "lerobot": LeRobotSource,
+_KINDS = {"raiden": RaidenSource, "raiden_rollouts": RolloutSource, "yam": YamMcapSource, "lerobot": LeRobotSource,
           "lerobot_single": LeRobotSingleRootSource, "webbed": WebbedSource}
 _SOURCES: dict[str, Source] = {}
 

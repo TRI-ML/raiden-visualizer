@@ -250,7 +250,7 @@ def build_for(src, task: str, episode: str, workdir: Path) -> dict[str, tuple[st
         return build_webbed(src, task, episode, workdir)
     if kind in ("lerobot", "lerobot_single"):
         return build_lerobot(src, task, episode)
-    if kind == "raiden":
+    if kind in ("raiden", "raiden_rollouts"):
         return build_raiden(src, task, episode, workdir)
     if kind == "yam":
         return build_yam(src, task, episode, workdir)

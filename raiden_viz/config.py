@@ -13,6 +13,7 @@ AWS_REGION = os.environ.get("RAIDEN_AWS_REGION", "us-west-2")
 # Datasets the viewer can browse. Each has a distinct on-disk format handled by a
 # dedicated source adapter (see sources.py). "kind" selects the adapter.
 #   raiden:  <prefix>/<task>/<episode>/{metadata.json, cameras/*.svo2, robot_data.npz}
+#   raiden_rollouts: the same files under <prefix>/<lead dirs…>/<task>/rollout_NNNN (yam-eval policy rollouts)
 #   yam:     <prefix>/<task>/episode_<uuid>/<mcap_name>  (one Foxglove-protobuf MCAP)
 #   lerobot: <prefix>/<task>[/<subdir>]/{meta,data,videos}  (LeRobot v3.0: packed parquet + video)
 # origin: "tri" = collected at TRI, "open" = public open-source dataset, "purchased" = bought from a vendor
@@ -32,6 +33,14 @@ SOURCES = [
     # metadata.json carries an extra rollout_info block that the raiden adapter
     # ignores. See raiden-rfm-flow-policy work.
     {"id": "rollouts", "origin": "tri", "embodiments": ["YAM"], "label": "Raiden Rollouts", "kind": "raiden", "bucket": S3_BUCKET, "prefix": "raiden_datasets/rollouts"},
+    # yam-eval policy rollouts (recorded by the yam-robot vibe daemon, uploaded by the eval console): the raiden
+    # layout nested under <run>_<step>/<task>/rollout_NNNN (Vibe) and <formal_id>/<run>_<step>/<task>/rollout_NNNN
+    # (ranked evals, yam-eval PR #368); `depth` = dir levels above <task>. metadata.json carries rollout_info,
+    # verdict and the score block (model label, prompt, judge source, station).
+    {"id": "policy_rollouts", "origin": "tri", "embodiments": ["YAM"], "label": "Policy rollouts (Vibe)", "kind": "raiden_rollouts",
+     "bucket": S3_BUCKET, "prefix": "tri-yam/policy_rollouts", "depth": 1},
+    {"id": "eval_rollouts", "origin": "tri", "embodiments": ["YAM"], "label": "Eval rollouts", "kind": "raiden_rollouts",
+     "bucket": S3_BUCKET, "prefix": "tri-yam/eval_rollouts", "depth": 2},
     # ABC-130k: the full open-source YAM dataset (xdof/Amazon). Same Foxglove-MCAP
     # format as the yam source but with episode.mcap files, newer topic names
     # (/<cam>, -state) and H.265 video — all handled by the yam adapter/decoder.
