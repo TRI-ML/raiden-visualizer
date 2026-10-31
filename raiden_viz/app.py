@@ -431,6 +431,50 @@ def warm_start(sid: str, task: str, workers: int = Query(3), posters: bool = Que
     return dict(st)
 
 
+@app.post("/api/sources/{sid}/warm")
+def warm_source_featured(sid: str, workers: int = Query(2)):
+    """Warm one SOURCE's featured episodes (every task) and its page metadata — the same
+    job as the CLI `warm --source <sid> --all --featured` — on THIS host, whose role
+    writes the derived tier. The deployed task is the only principal that can write the
+    prod derived bucket, so the hosted site is pre-warmed through this route. Background,
+    idempotent while running; status at GET /api/sources/{sid}/warm."""
+    from . import warm as warm_mod
+    src = _src(sid)
+    key = f"{sid}/*"
+    with _WARMS_LOCK:
+        st = _WARMS.get(key)
+        if st and st["running"]:
+            return dict(st)
+        st = _WARMS[key] = {"running": True, "done": False, "total": 0, "completed": 0,
+                            "failed": 0, "error": None, "started_at": time.time(), "result": None}
+
+    def run():
+        try:
+            tasks = src.list_tasks()
+            st["total"] = len(tasks)
+            for i, task in enumerate(tasks, 1):
+                if warm_mod.warm_featured(src, [task], workers=max(1, min(workers, 4))):
+                    st["failed"] += 1
+                st["completed"] = i
+            warm_mod.warm_meta(src)
+            st["result"] = {"tasks": len(tasks), "featured_n": config.FEATURED_N}
+        except Exception as e:  # noqa: BLE001
+            logger.exception("featured warm failed for %s", sid)
+            st["error"] = str(e)
+        finally:
+            st["running"], st["done"] = False, True
+
+    threading.Thread(target=run, daemon=True, name=f"warm-featured-{sid}").start()
+    return dict(st)
+
+
+@app.get("/api/sources/{sid}/warm")
+def warm_source_status(sid: str):
+    with _WARMS_LOCK:
+        st = _WARMS.get(f"{sid}/*")
+    return dict(st) if st else {"running": False, "done": False}
+
+
 @app.get("/api/sources/{sid}/previews")
 def previews_all(sid: str):
     """{task: {episode, camera, cameras, poster_name, clip_name, poster_names,

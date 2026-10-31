@@ -71,3 +71,27 @@ def test_unhandled_errors_do_not_leak_internals():
     r = TestClient(probe, raise_server_exceptions=False).get("/boom")
     assert r.status_code == 500
     assert "tri-ml-datasets-uw2" not in r.text
+
+
+def test_source_featured_warm_route_runs_warm_featured_and_meta(client, monkeypatch):
+    """POST /api/sources/{sid}/warm = the CLI's `--featured` job on the host that can write the derived tier."""
+    import time
+
+    from raiden_viz import app as app_module
+    from raiden_viz import warm
+
+    calls = []
+    monkeypatch.setattr(warm, "warm_featured", lambda src, tasks, workers=2: calls.append(("featured", tuple(tasks))) or 0)
+    monkeypatch.setattr(warm, "warm_meta", lambda src: calls.append(("meta",)))
+    src = app_module._src("x")
+    src.list_tasks = lambda: ["t1", "t2"]
+    monkeypatch.setattr(app_module, "_src", lambda sid: src)
+    r = client.post("/api/sources/x/warm")
+    assert r.status_code == 200 and r.json()["started_at"]  # may already be done: the fakes return instantly
+    for _ in range(50):
+        st = client.get("/api/sources/x/warm").json()
+        if st["done"]:
+            break
+        time.sleep(0.05)
+    assert st["done"] and st["completed"] == 2 and st["failed"] == 0
+    assert calls == [("featured", ("t1",)), ("featured", ("t2",)), ("meta",)]
