@@ -168,21 +168,46 @@ def test_task_dropdown_filters_and_selects(browser, site):
     page.wait_for_selector("#task-select option", state="attached")
     btn = page.locator("#task-select + .dd-btn")
     assert btn.inner_text().strip() == TASK["task"]            # mirrors the selected option
+    # pad the list past the search threshold (the demo source has one task); option appends are mirrored
+    page.evaluate("for (let i = 0; i < 9; i++) document.querySelector('#task-select').append(new Option('other_task_' + i))")
     btn.click()
-    page.wait_for_selector(".dd-pop:not([hidden]) .dd-opt")
-    page.fill(".dd-search", "zzz")
-    assert page.locator(".dd-empty").count() == 1
-    page.fill(".dd-search", "spoon")
-    assert page.locator(".dd-opt").count() == 1
+    pop = page.locator("#task-select ~ .dd-pop")
+    page.wait_for_selector("#task-select ~ .dd-pop:not([hidden]) .dd-opt")
+    pop.locator(".dd-search").fill("zzz")
+    assert pop.locator(".dd-empty").count() == 1
+    pop.locator(".dd-search").fill("spoon")
+    assert pop.locator(".dd-opt").count() == 1
     for theme in ("dark", "light"):
         page.evaluate(f"document.documentElement.setAttribute('data-theme','{theme}')")
         page.screenshot(path=str(SHOTS / f"dropdown_rv_{theme}.png"))
     page.evaluate("window._chg = 0; document.querySelector('#task-select').addEventListener('change', () => window._chg++)")
     page.evaluate("document.querySelector('#task-select').selectedIndex = -1")   # force a real change on Enter
     page.keyboard.press("Enter")
-    page.wait_for_selector(".dd-pop[hidden]", state="attached")
+    page.wait_for_function("document.querySelector('#task-select ~ .dd-pop').hidden")
     assert page.evaluate("window._chg") == 1
     assert page.evaluate("document.querySelector('#task-select').value") == TASK["task"]
     page.evaluate("document.querySelector('#task-select').value = ''")   # programmatic set mirrors onto the face
     assert btn.inner_text().strip() == ""
+    page.close()
+
+
+def test_every_select_is_wrapped_including_late_ones(browser, site):
+    page = _open(browser, site, hash_="#demo")
+    page.wait_for_selector("#task-select option", state="attached")
+    # the short Preview dataset picker is wrapped too and opens without a filter box
+    page.wait_for_selector("#preview-task + .dd-btn")
+    page.locator("#preview-task + .dd-btn").click()
+    page.wait_for_selector("#preview-task ~ .dd-pop:not([hidden])")
+    assert page.locator("#preview-task ~ .dd-pop .dd-search").is_hidden()
+    page.screenshot(path=str(SHOTS / "dropdown2_rv_preview.png"))
+    page.keyboard.press("Escape")
+    # a select rendered later is wrapped by the body observer; data-dropdown="native" opts out
+    page.evaluate("""() => {
+        const d = document.createElement('div');
+        d.innerHTML = '<select id="late-sel"><option>a</option><option>b</option></select><select id="late-native" data-dropdown="native"><option>x</option></select>';
+        document.body.append(d);
+    }""")
+    page.wait_for_selector("#late-sel + .dd-btn", state="attached")
+    assert page.locator("#late-native + .dd-btn").count() == 0
+    assert page.locator("#late-sel + .dd-btn").inner_text().strip() == "a"
     page.close()
