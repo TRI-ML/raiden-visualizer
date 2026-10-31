@@ -133,6 +133,7 @@ html[data-env="dev"] .calib-card, html[data-env="local"] .calib-card { display: 
 .search-wrap input:focus { border-color: var(--accent); }
 
 .side-section { display: flex; flex-direction: column; gap: 7px; }
+.side-section[hidden] { display: none; }   /* the hidden Dataset selector (PR #33); flex above would otherwise win */
 .side-section.grow { flex: 1; min-height: 0; }
 .side-label {
   font-size: var(--fs-small); text-transform: uppercase; letter-spacing: 0.06em;
