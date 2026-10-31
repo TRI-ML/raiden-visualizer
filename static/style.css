@@ -225,7 +225,7 @@ select option { background: var(--bg-elev); color: var(--text); }
 #episode-list li.ep-li-more { color: var(--text-faint); font-style: italic; cursor: default; text-align: center; }
 
 .side-foot { font-size: var(--fs-small); color: var(--text-faint); border-top: 1px solid var(--border-soft); padding-top: 10px; }
-.side-foot #s3-root { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.side-foot #s3-root { display: block; overflow-wrap: anywhere; word-break: break-all; line-height: 1.4; }   /* full path visible, wrapped (user, 2026-10-31) */
 
 /* ---------- Main ---------- */
 #main { flex: 1; height: 100vh; overflow-y: auto; }
