@@ -610,11 +610,13 @@ select option { background: var(--bg-elev); color: var(--text); }
 .cat-stat-v { font-size: 26px; font-weight: 700; color: var(--text); line-height: 1.1; }
 .cat-stat-k { font-size: 12px; color: var(--text-dim); margin-top: 4px; }
 
-.cat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; padding-top: 4px; }
+.cat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; padding: 16px; }   /* breathing room inside the Datasets card */
 .cat-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius);
   padding: 16px; cursor: pointer; transition: border-color .12s, background .12s, transform .12s; }
 .cat-card:hover { border-color: var(--accent); background: var(--bg-hover); transform: translateY(-2px); }
-.cat-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
+/* title on its own line, the format + origin pills in a row underneath so long names never push a pill out */
+.cat-card-head { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin-bottom: 12px; }
+.cat-pills { display: flex; flex-wrap: wrap; gap: 6px; }
 .cat-card-title { font-size: 15px; font-weight: 600; color: var(--text); }
 .cat-fmt { font-size: var(--fs-small); color: var(--text-dim); background: var(--bg-elev); border: 1px solid var(--border);
   padding: 2px 8px; border-radius: 20px; white-space: nowrap; }
