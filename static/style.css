@@ -121,6 +121,8 @@ body.catalog-mode #sidebar .side-foot { display: none; }
 .seg.theme-seg button:disabled { cursor: default; opacity: 0.55; }
 /* fleet-wide activity panels only make sense on the production site */
 html[data-env="dev"] .contrib-row, html[data-env="local"] .contrib-row { display: none; }
+/* dev / local also skip the calibration & cameras card on the episode page (user, 2026-10-31) */
+html[data-env="dev"] .calib-card, html[data-env="local"] .calib-card { display: none; }
 
 .search-wrap input {
   width: 100%; padding: 9px 12px; border-radius: var(--radius-sm);
