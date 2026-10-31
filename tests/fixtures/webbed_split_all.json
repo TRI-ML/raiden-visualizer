@@ -1,0 +1,116 @@
+{
+ "command": "auto-generated split_all.json combining all per-camera/flex-group manifests",
+ "config": {
+  "name": "Unified",
+  "path": [
+   "/home/ge.yan/yam_seg48_scratch/cv_unified/videos/kitchen_put_spoon_seg48/split_all.json"
+  ],
+  "labels": [
+   "rgb",
+   "depth",
+   "intrinsics",
+   "language",
+   "action"
+  ],
+  "cameras": [
+   "cam_high",
+   "cam_left_wrist",
+   "cam_right_wrist"
+  ],
+  "length": "ALL"
+ },
+ "info": {
+  "webbed": "48",
+  "stride": 1,
+  "num_sequences": 3,
+  "num_files": 1661,
+  "tags": [
+   "bimanual",
+   "real",
+   "robotics",
+   "success",
+   "tabletop",
+   "yam"
+  ],
+  "labels": [
+   "action",
+   "depth",
+   "intrinsics",
+   "language",
+   "rgb"
+  ],
+  "cameras": [
+   "cam_high",
+   "cam_left_wrist",
+   "cam_right_wrist"
+  ],
+  "shared_tags": [
+   "bimanual",
+   "real",
+   "robotics",
+   "success",
+   "tabletop",
+   "yam"
+  ],
+  "shared_labels": [
+   "action",
+   "depth",
+   "intrinsics",
+   "language",
+   "rgb"
+  ],
+  "shared_cameras": [
+   "cam_high",
+   "cam_left_wrist",
+   "cam_right_wrist"
+  ],
+  "source_manifests": [
+   "split_all__cam_high.json",
+   "split_all__cam_left_wrist.json",
+   "split_all__cam_right_wrist.json"
+  ]
+ },
+ "sequences": {
+  "chunk_000/episode_000000": [
+   "0000_0044.tar",
+   "0044_0088.tar",
+   "0088_0132.tar",
+   "0132_0176.tar",
+   "0176_0220.tar",
+   "0220_0265.tar",
+   "0265_0309.tar",
+   "0309_0353.tar",
+   "0353_0397.tar",
+   "0397_0441.tar",
+   "0441_0485.tar"
+  ],
+  "chunk_000/episode_000001": [
+   "0000_0044.tar",
+   "0044_0089.tar",
+   "0089_0133.tar",
+   "0133_0178.tar",
+   "0178_0222.tar",
+   "0222_0267.tar",
+   "0267_0311.tar",
+   "0311_0356.tar",
+   "0356_0400.tar",
+   "0400_0445.tar",
+   "0445_0489.tar",
+   "0489_0534.tar",
+   "0534_0578.tar"
+  ],
+  "chunk_000/episode_000002": [
+   "0000_0045.tar",
+   "0045_0090.tar",
+   "0090_0135.tar",
+   "0135_0180.tar",
+   "0180_0225.tar",
+   "0225_0270.tar",
+   "0270_0315.tar",
+   "0315_0360.tar",
+   "0360_0405.tar",
+   "0405_0450.tar",
+   "0450_0495.tar"
+  ]
+ }
+}

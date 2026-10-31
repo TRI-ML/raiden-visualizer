@@ -2,6 +2,12 @@
 
     python -m raiden_viz.warm --source yam_sim --task plate_rack_front2_tbl
     python -m raiden_viz.warm --source yam_sim --all
+    python -m raiden_viz.warm --source webbed --all --featured      # any source: its featured episodes only
+
+``--featured`` pre-renders just each task's FEATURED episodes (config.FEATURED_N, the stable sample the
+browse list shows by default): episode detail plus every camera clip and poster, through the normal
+episode_detail()/video_path() path, for any source kind. That is what makes a dataset's default view load
+instantly; the rest of the task still renders on demand.
 
 Run it wherever the app's credentials are: on the task host, or on any box holding a
 role/profile that can read the source bucket AND write the derived bucket, with the
@@ -27,13 +33,17 @@ def main(argv=None) -> int:
     ap.add_argument("--task", action="append", default=[], help="task name (repeatable)")
     ap.add_argument("--all", action="store_true", help="every task of the source")
     ap.add_argument("--workers", type=int, default=4)
+    ap.add_argument("--featured", action="store_true", help="only each task's featured episodes (any source kind)")
     args = ap.parse_args(argv)
     if not args.task and not args.all:
         ap.error("give --task or --all")
 
     src = sources.get_source(config.SOURCES, args.source)
+    if args.featured:
+        return warm_featured(src, src.list_tasks() if args.all else args.task, args.workers)
     if not isinstance(src, sources.LeRobotSource):
-        ap.error(f"{args.source} is kind {src.spec.get('kind')!r}; warm handles lerobot sources")
+        ap.error(f"{args.source} is kind {src.spec.get('kind')!r}; warm handles lerobot sources "
+                 f"(use --featured for the others)")
     if not cache.remote_enabled():
         print("WARNING: RAIDEN_DERIVED_BUCKET is not set — clips will only warm THIS box's local "
               "cache, not the deployed app.", file=sys.stderr)
@@ -61,6 +71,44 @@ def main(argv=None) -> int:
               f"({res['episodes']} episodes, {res['clips']} clips), {time.perf_counter() - t0:.0f}s",
               flush=True)
     return 1 if total_failed else 0
+
+
+def warm_featured(src, tasks, workers: int = 2) -> int:
+    """Render each task's featured episodes: detail + every camera clip (+ poster). One episode at a time per
+    worker; a failure is reported and skipped. Resumable: rendered artifacts are cache hits."""
+    from concurrent.futures import ThreadPoolExecutor
+    failed = 0
+    for task in tasks:
+        try:
+            eps = src.featured_episodes(task)
+        except Exception as ex:  # noqa: BLE001
+            print(f"[warm {task}] FAILED listing: {type(ex).__name__}: {ex}", file=sys.stderr, flush=True)
+            failed += 1
+            continue
+        t0 = time.perf_counter()
+
+        def _one(ep, _task=task):
+            try:
+                d = src.episode_detail(_task, ep)
+                for c in d.get("cameras") or []:
+                    if not c.get("has_video", True):
+                        continue
+                    src.video_path(_task, ep, c["name"], (c.get("eyes") or ["left"])[0])
+                    try:
+                        src.poster_path(_task, ep, c["name"], (c.get("eyes") or ["left"])[0])
+                    except Exception:  # noqa: BLE001 - a poster is a nicety
+                        pass
+                return None
+            except Exception as ex:  # noqa: BLE001
+                return f"{ep}: {type(ex).__name__}: {ex}"
+
+        with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
+            for i, err in enumerate(pool.map(_one, eps), 1):
+                if err:
+                    failed += 1
+                    print(f"[warm {task}] FAILED {err}", file=sys.stderr, flush=True)
+                print(f"[warm {task}] {i}/{len(eps)} featured episodes, {time.perf_counter() - t0:.0f}s", flush=True)
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":

@@ -617,3 +617,11 @@ select:focus { border-color: var(--accent); }
 .task-head .pv-box { margin-bottom: 6px; }
 .task-head .facts { font-size: 11px; color: var(--text-dim); font-family: 'JetBrains Mono', monospace; line-height: 1.5; word-break: break-word; }
 .task-head.hidden { display: none; }
+
+/* webbed datasets: language prompt under the task name; featured sample link; shard-boundary ticks under the scrubber */
+.ov-task-row .t-prompt { font-weight: 400; font-size: 11px; color: var(--text-faint); margin-top: 2px; }
+#episode-list li.ep-li-all { cursor: pointer; pointer-events: auto; color: var(--accent); font-style: normal; }
+.scrub-wrap { position: relative; flex: 1; display: flex; flex-direction: column; }
+.scrub-wrap .scrubber { width: 100%; }
+.shard-ticks { position: relative; height: 6px; margin-top: -2px; }
+.shard-ticks i { position: absolute; top: 0; width: 1px; height: 6px; background: var(--text-faint); }
