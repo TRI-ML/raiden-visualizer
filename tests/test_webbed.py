@@ -86,3 +86,9 @@ def test_featured_episodes_are_a_stable_sample(tmp_path, monkeypatch):
     assert src.list_episodes("t") == list(reversed(eps))
     assert json.loads((tmp_path / "featured_fake_t.json").read_text())["of"] == 20
     assert Fake({"id": "fake", "label": "f", "bucket": "b", "prefix": "p"}).featured_episodes("t") == first   # from the JSON
+    # a task that grows by more than 20 % gets a fresh pick; a small addition keeps it
+    eps.extend(f"ep_{i:03d}" for i in range(20, 22))                   # +10 %: kept
+    assert src.featured_episodes("t") == first
+    eps.extend(f"ep_{i:03d}" for i in range(22, 40))                   # now 40 of 20 recorded: re-picked
+    second = src.featured_episodes("t")
+    assert len(second) == 3 and json.loads((tmp_path / "featured_fake_t.json").read_text())["of"] == 40

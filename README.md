@@ -141,7 +141,10 @@ Every task's browse list shows a stable random sample of `RAIDEN_FEATURED_N`
 (default 10) episodes — the "featured" ones — with a "show all" link for the
 rest. The pick is seeded on `<source>/<task>`, stored once as a small JSON in the
 cache tiers, and is what `warm --featured` pre-renders, so a dataset's default
-view is instant while the rest still renders on demand.
+view is instant while the rest still renders on demand. The pick is kept while
+its episodes exist and the task has not grown or shrunk by more than 20 %;
+past that it is re-sampled (and the catalog preview, which renders a featured
+episode, follows).
 
 ### Pre-rendering clips (`raiden_viz.warm`)
 
