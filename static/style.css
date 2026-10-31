@@ -1,4 +1,7 @@
+@font-face { font-family: "Space Grotesk"; font-weight: 500; font-display: swap; src: url(fonts/SpaceGrotesk-Medium.woff2) format("woff2"); }
+@font-face { font-family: "Space Grotesk"; font-weight: 600; font-display: swap; src: url(fonts/SpaceGrotesk-SemiBold.woff2) format("woff2"); }
 :root {
+  --font-display: "Space Grotesk", 'Inter', system-ui, sans-serif;
   /* dark (default) palette; the light palette below overrides the same tokens */
   --bg: #0e0f13;
   --bg-elev: #16181f;
@@ -103,14 +106,21 @@ h1, h2, h3 { margin: 0; font-weight: 600; }
 body.catalog-mode #sidebar .search-wrap,
 body.catalog-mode #sidebar .side-section,
 body.catalog-mode #sidebar .side-foot { display: none; }
-.brand { display: flex; align-items: center; gap: 12px; }
-.brand-mark {
-  width: 34px; height: 34px; border-radius: 9px;
-  background: linear-gradient(135deg, var(--accent), var(--accent-2));
-  box-shadow: 0 4px 14px var(--accent-ring);
-}
-.brand-title { font-weight: 700; font-size: 15px; letter-spacing: -0.01em; }
-.brand-sub { font-size: var(--fs-small); color: var(--text-faint); }
+/* Brand: the yam-eval wordmark ("YAM" over "Datasets" in the accent, Space Grotesk) + the pill segments */
+.brand { display: flex; flex-direction: column; gap: 12px; }
+.wordmark { font-family: var(--font-display); font-size: 1.05rem; font-weight: 600; letter-spacing: -0.2px; margin: 0; width: 3.2rem; line-height: 1.35; cursor: pointer; }
+.wordmark:hover { opacity: 0.85; }
+.accent { color: var(--accent); }
+.brand-segs { display: flex; gap: 10px; flex-wrap: wrap; }
+.seg.theme-seg { border: none; background: none; border-radius: 0; overflow: visible; }
+.seg.theme-seg button { flex: none; padding: 4px 10px; font-size: 0.78rem; border: 1px solid var(--border); background: var(--bg); color: var(--text-dim); border-radius: 0; }
+.seg.theme-seg button + button { margin-left: -1px; }
+.seg.theme-seg button:first-child { border-radius: 999px 0 0 999px; }
+.seg.theme-seg button:last-child { border-radius: 0 999px 999px 0; }
+.seg.theme-seg button.active { background: var(--accent); color: #06101f; border-color: var(--accent); font-weight: 600; }
+.seg.theme-seg button:disabled { cursor: default; opacity: 0.55; }
+/* fleet-wide activity panels only make sense on the production site */
+html[data-env="dev"] .contrib-row, html[data-env="local"] .contrib-row { display: none; }
 
 .search-wrap input {
   width: 100%; padding: 9px 12px; border-radius: var(--radius-sm);
@@ -320,7 +330,7 @@ select:focus { border-color: var(--accent); }
   display: flex; justify-content: space-between; align-items: center;
   padding: 14px 16px; border-bottom: 1px solid var(--border-soft); gap: 12px;
 }
-.card-head h3 { font-size: var(--fs-h); letter-spacing: -0.01em; }
+.card-head h3 { font-size: var(--fs-small); text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); font-weight: 600; }
 .controls { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: flex-end; }
 
 /* Segmented (eye) */
@@ -676,13 +686,6 @@ select:focus { border-color: var(--accent); }
 .shard-ticks { position: relative; height: 6px; margin-top: -2px; }
 .shard-ticks i { position: absolute; top: 0; width: 1px; height: 6px; background: var(--text-faint); }
 
-/* theme toggle (sidebar brand row) */
-.theme-toggle {
-  margin-left: auto; width: 30px; height: 30px; border-radius: 8px; flex: none;
-  border: 1px solid var(--border); background: var(--bg); color: var(--text-dim); cursor: pointer;
-  font-size: var(--fs-body); line-height: 1; display: flex; align-items: center; justify-content: center;
-}
-.theme-toggle:hover { color: var(--text); border-color: var(--accent); }
 /* tag chips on task rows + the tag filter above the Tasks list (webbed / LeRobot sources) */
 .t-tags { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
 .t-tag { font-size: var(--fs-small); padding: 1px 7px; border-radius: 999px; background: var(--bg); border: 1px solid var(--border-soft); color: var(--text-faint); }

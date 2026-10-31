@@ -65,10 +65,10 @@ def browser():
         b.close()
 
 
-def _open(browser, site, hash_=""):
+def _open(browser, site, hash_="", query=""):
     page = browser.new_page(viewport={"width": 1400, "height": 900})
-    page.route("**/*", _route) if False else page.route("**/api/**", _route)
-    page.goto(f"{site}/index.html{hash_}", wait_until="domcontentloaded")
+    page.route("**/api/**", _route)
+    page.goto(f"{site}/index.html{query}{hash_}", wait_until="domcontentloaded")
     return page
 
 
@@ -79,8 +79,9 @@ def test_catalog_renders_and_theme_toggle_persists(browser, site):
     assert page.evaluate("document.documentElement.dataset.theme") in ("dark", "light")
     page.evaluate("applyTheme('dark')")
     page.screenshot(path=str(SHOTS / "rv_dark_catalog.png"))
-    page.click("#theme-toggle")
+    page.click('#theme-seg [data-theme="light"]')
     assert page.evaluate("document.documentElement.dataset.theme") == "light"
+    assert "active" in page.get_attribute('#theme-seg [data-theme="light"]', "class")
     assert page.evaluate("localStorage.getItem('rv_theme')") == "light"
     page.screenshot(path=str(SHOTS / "rv_light_catalog.png"))
     page.reload(wait_until="domcontentloaded")
@@ -88,6 +89,31 @@ def test_catalog_renders_and_theme_toggle_persists(browser, site):
     # every colour goes through a token: the light sheet changes the page background
     bg = page.evaluate("getComputedStyle(document.body).backgroundColor")
     assert bg == "rgb(245, 246, 249)", bg
+    assert page.locator("#brand-home").inner_text().split() == ["YAM", "Datasets"]
+    page.close()
+
+
+def test_env_segment_and_activity_panels(browser, site):
+    # dev: Dev lit, fleet-wide activity panels hidden; prod: Prod lit, panels shown; local (no hostname): segment disabled
+    page = _open(browser, site, query="?env=dev")
+    page.wait_for_selector(".cat-card")
+    assert "active" in page.get_attribute('#env-seg [data-env="dev"]', "class")
+    assert page.locator(".contrib-card").first.is_hidden()
+    assert page.locator(".teacher-card").is_hidden()
+    page.screenshot(path=str(SHOTS / "rv_header_dev.png"))
+    page.close()
+    page = _open(browser, site, query="?env=prod")
+    page.wait_for_selector(".cat-card")
+    assert "active" in page.get_attribute('#env-seg [data-env="prod"]', "class")
+    assert page.locator(".contrib-card").first.is_visible()
+    assert page.locator(".teacher-card").is_visible()
+    page.screenshot(path=str(SHOTS / "rv_header_prod.png"))
+    page.close()
+    page = _open(browser, site)
+    page.wait_for_selector(".cat-card")
+    assert page.evaluate("document.documentElement.dataset.env") == "local"
+    assert page.locator('#env-seg [data-env="prod"]').is_disabled()
+    assert page.locator(".teacher-card").is_hidden()
     page.close()
 
 
