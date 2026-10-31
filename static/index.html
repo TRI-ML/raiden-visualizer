@@ -238,10 +238,13 @@
           <div id="camera-grid" class="camera-grid"></div>
           <div class="transport" id="transport">
             <button id="play-btn" class="play-btn" title="Play / pause">▶</button>
-            <div class="scrub-wrap"><input id="scrubber" class="scrubber" type="range" min="0" max="1000" value="0" step="1" /><div id="shard-ticks" class="shard-ticks hidden"></div></div>
+            <div class="scrub-wrap"><div id="lang-track" class="lang-track hidden" title="Language labels"></div><input id="scrubber" class="scrubber" type="range" min="0" max="1000" value="0" step="1" /><div id="shard-ticks" class="shard-ticks hidden"></div></div>
             <span id="time-label" class="time-label mono">0.0s</span>
             <button id="trace-toggle" class="trace-toggle active" title="Toggle end-effector future-trace overlay">EE trace</button>
           </div>
+          <!-- Language labels (subtask / Argus): the colored track above the scrubber shares its width, so the
+               playhead and the scrubber line up; the current label reads here. Both hidden when the episode has none. -->
+          <div class="lang-now hidden" id="lang-now"></div>
         </section>
 
         <section class="card meta-card">
@@ -252,14 +255,6 @@
         <section class="card rollout-card hidden" id="rollout-card">
           <div class="card-head"><h3>Rollout / policy</h3><span id="rollout-generator" class="subtle mono"></span></div>
           <div id="rollout-body" class="rollout-body"></div>
-        </section>
-
-        <!-- Language timeline: the subtask / Argus labels as segments synced to the video clock (hidden when none) -->
-        <section class="card annotations-card hidden" id="annotations-card">
-          <div class="card-head"><h3>Language timeline</h3><span id="lang-count" class="mono subtle"></span></div>
-          <div class="lang-now" id="lang-now"></div>
-          <div class="lang-track" id="lang-track"></div>
-          <div id="annotations-body" class="annotations-body"></div>
         </section>
 
         <section class="card plot-card">

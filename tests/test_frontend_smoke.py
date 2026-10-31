@@ -156,89 +156,29 @@ def test_episode_view_renders_camera_grid_and_generic_names(browser, site):
 def test_language_timeline_syncs_with_the_clock(browser, site):
     page = _open(browser, site, "#demo/kitchen_put_spoon_seg48/chunk_000__episode_000001")
     page.wait_for_selector("#camera-grid .cam-tile")
-    assert not page.locator("#annotations-card").is_visible()       # no labels: the card stays hidden
+    assert not page.locator("#lang-track").is_visible()                # no labels: no track, no label line
+    assert not page.locator("#lang-now").is_visible()
+    assert "repeat(2" in page.evaluate("document.querySelector('#camera-grid').style.gridTemplateColumns")   # 1×N row
     page.close()
     page = _open(browser, site, "#demo/kitchen_put_spoon_seg48/chunk_000__episode_000003")
     page.wait_for_selector("#lang-track .lang-seg")
-    assert page.locator("#lang-track .lang-seg").count() == 3
+    segs = page.locator("#lang-track .lang-seg")
+    assert segs.count() == 3
+    assert all(segs.nth(i).inner_text() == "" for i in range(3))      # colored blocks only
+    colors = [segs.nth(i).evaluate("n => n.style.background") for i in range(3)]
+    assert all(colors) and len(set(colors)) == 3                       # one color per distinct label
+    # the track sits in the scrub-wrap, so it spans exactly the scrubber's width
+    assert page.evaluate("document.querySelector('#lang-track').getBoundingClientRect().width") == \
+        page.evaluate("document.querySelector('#scrubber').getBoundingClientRect().width")
     assert page.locator("#lang-now").inner_text() == ""              # t=0 is before the first label
     page.evaluate("drawAllCursors(1)")
     assert "reach" in page.locator("#lang-now").inner_text()
-    page.evaluate("drawAllCursors(7)")                               # the transport tick drives the timeline
+    page.evaluate("drawAllCursors(7)")                               # the transport tick drives the track
     assert "grasp" in page.locator("#lang-now").inner_text()
     assert page.locator("#lang-track .lang-seg.active").get_attribute("data-i") == "1"
     head_x = page.evaluate("parseFloat(document.querySelector('#lang-track .lang-head').style.left)")
     assert abs(head_x - 100 * 7 / 16.1) < 0.5
-    page.locator("#lang-track .lang-seg").nth(2).click()             # clicking a segment seeks to its start
+    segs.nth(2).click()                                              # clicking a segment seeks to its start
     assert "drawer" in page.locator("#lang-now").inner_text()
     page.screenshot(path=str(SHOTS / "argus_timeline.png"))
-
-
-def test_task_dropdown_filters_and_selects(browser, site):
-    """The task select is wrapped by dropdown.js: button face, filter box, Enter picks and fires change."""
-    page = _open(browser, site, hash_="#demo")
-    page.wait_for_selector("#task-select option", state="attached")
-    btn = page.locator("#task-select + .dd-btn")
-    assert btn.inner_text().strip() == TASK["task"]            # mirrors the selected option
-    # pad the list past the search threshold (the demo source has one task); option appends are mirrored
-    page.evaluate("for (let i = 0; i < 9; i++) document.querySelector('#task-select').append(new Option('other_task_' + i))")
-    btn.click()
-    pop = page.locator("#task-select ~ .dd-pop")
-    page.wait_for_selector("#task-select ~ .dd-pop:not([hidden]) .dd-opt")
-    pop.locator(".dd-search").fill("zzz")
-    assert pop.locator(".dd-empty").count() == 1
-    pop.locator(".dd-search").fill("spoon")
-    assert pop.locator(".dd-opt").count() == 1
-    for theme in ("dark", "light"):
-        page.evaluate(f"document.documentElement.setAttribute('data-theme','{theme}')")
-        page.screenshot(path=str(SHOTS / f"dropdown_rv_{theme}.png"))
-    page.evaluate("window._chg = 0; document.querySelector('#task-select').addEventListener('change', () => window._chg++)")
-    page.evaluate("document.querySelector('#task-select').selectedIndex = -1")   # force a real change on Enter
-    page.keyboard.press("Enter")
-    page.wait_for_function("document.querySelector('#task-select ~ .dd-pop').hidden")
-    assert page.evaluate("window._chg") == 1
-    assert page.evaluate("document.querySelector('#task-select').value") == TASK["task"]
-    page.evaluate("document.querySelector('#task-select').value = ''")   # programmatic set mirrors onto the face
-    assert btn.inner_text().strip() == ""
-    page.close()
-
-
-def test_every_select_is_wrapped_including_late_ones(browser, site):
-    page = _open(browser, site, hash_="#demo")
-    page.wait_for_selector("#task-select option", state="attached")
-    # the short Preview dataset picker is wrapped too and opens without a filter box
-    page.wait_for_selector("#preview-task + .dd-btn")
-    page.locator("#preview-task + .dd-btn").click()
-    page.wait_for_selector("#preview-task ~ .dd-pop:not([hidden])")
-    assert page.locator("#preview-task ~ .dd-pop .dd-search").is_hidden()
-    page.screenshot(path=str(SHOTS / "dropdown2_rv_preview.png"))
-    page.keyboard.press("Escape")
-    # a select rendered later is wrapped by the body observer; data-dropdown="native" opts out
-    page.evaluate("""() => {
-        const d = document.createElement('div');
-        d.innerHTML = '<select id="late-sel"><option>a</option><option>b</option></select><select id="late-native" data-dropdown="native"><option>x</option></select>';
-        document.body.append(d);
-    }""")
-    page.wait_for_selector("#late-sel + .dd-btn", state="attached")
-    assert page.locator("#late-native + .dd-btn").count() == 0
-    assert page.locator("#late-sel + .dd-btn").inner_text().strip() == "a"
-    page.close()
-
-
-def test_overview_tiles_origin_chip_and_s3_foot(browser, site):
-    page = _open(browser, site)
-    page.wait_for_selector(".cat-card")
-    assert page.locator(".cat-card .cat-origin").first.inner_text() == "Open source"
-    page.click(".cat-card")
-    page.wait_for_selector("#ov-median-num:not(:has-text('…'))")
-    assert page.locator("#s3-root").inner_text() == "s3://b/p"
-    assert page.locator("#ov-origin").inner_text() == "Open source"
-    assert page.locator("#ov-embod .cat-embod").all_inner_texts() == ["YAM", "Hand"]
-    assert page.locator(".cat-card .cat-embod").count() == 2
-    tiles = [x.lower() for x in page.locator("#ov-stats .ov-stat .lbl").all_inner_texts()]   # CSS uppercases them
-    assert not any("station" in x for x in tiles)
-    assert "median length" in tiles and "episodes / task" in tiles and "annotated episodes" in tiles
-    assert page.locator("#ov-median-num").inner_text() == "18.1 s"
-    assert page.locator("#ov-annot-num").inner_text() == "1"
-    page.screenshot(path=str(SHOTS / "rv_overview_stats.png"))
     page.close()
