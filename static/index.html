@@ -32,7 +32,8 @@
       <input id="episode-search" type="text" placeholder="Filter episodes…" autocomplete="off" />
     </div>
 
-    <div class="side-section">
+    <!-- Dataset selector hidden (user, 2026-10-31): go back home to pick another dataset. The element stays for app.js. -->
+    <div class="side-section" hidden>
       <label class="side-label" for="source-select">Dataset</label>
       <select id="source-select"></select>
     </div>
@@ -123,10 +124,11 @@
     <!-- Overview / landing page: dataset-wide summary -->
     <div id="overview-view" class="hidden">
       <header class="ov-header">
-        <h1>Dataset overview</h1>
+        <h1 id="ov-title">Dataset</h1>
       </header>
 
-      <section class="card ov-path-card">
+      <!-- Source (s3 path) card hidden (user, 2026-10-31) -->
+      <section class="card ov-path-card" hidden>
         <div class="card-head"><h3>Source</h3></div>
         <div class="ov-path-body" id="ov-path"></div>
       </section>

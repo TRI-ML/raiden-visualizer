@@ -911,6 +911,8 @@ function drawTeachers(metric) {
 async function renderOverview() {
   try {
     const ov = await api(`${apiBase()}/overview`);
+    const src = (state.sources || []).find((x) => x.id === state.source);
+    $("#ov-title").textContent = src ? src.label : state.source;   // the dataset name is the page title
     // s3 path hidden from the sidebar foot and the overview Source card (user, 2026-10-31); kept as a title.
     $("#s3-root").textContent = "";
     $("#ov-path").innerHTML = "";
