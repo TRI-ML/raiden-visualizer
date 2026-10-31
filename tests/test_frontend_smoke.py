@@ -159,4 +159,29 @@ def test_language_timeline_syncs_with_the_clock(browser, site):
     page.locator("#lang-track .lang-seg").nth(2).click()             # clicking a segment seeks to its start
     assert "drawer" in page.locator("#lang-now").inner_text()
     page.screenshot(path=str(SHOTS / "argus_timeline.png"))
+
+
+def test_task_dropdown_filters_and_selects(browser, site):
+    """The task select is wrapped by dropdown.js: button face, filter box, Enter picks and fires change."""
+    page = _open(browser, site, hash_="#demo")
+    page.wait_for_selector("#task-select option", state="attached")
+    btn = page.locator("#task-select + .dd-btn")
+    assert btn.inner_text().strip() == TASK["task"]            # mirrors the selected option
+    btn.click()
+    page.wait_for_selector(".dd-pop:not([hidden]) .dd-opt")
+    page.fill(".dd-search", "zzz")
+    assert page.locator(".dd-empty").count() == 1
+    page.fill(".dd-search", "spoon")
+    assert page.locator(".dd-opt").count() == 1
+    for theme in ("dark", "light"):
+        page.evaluate(f"document.documentElement.setAttribute('data-theme','{theme}')")
+        page.screenshot(path=str(SHOTS / f"dropdown_rv_{theme}.png"))
+    page.evaluate("window._chg = 0; document.querySelector('#task-select').addEventListener('change', () => window._chg++)")
+    page.evaluate("document.querySelector('#task-select').selectedIndex = -1")   # force a real change on Enter
+    page.keyboard.press("Enter")
+    page.wait_for_selector(".dd-pop[hidden]", state="attached")
+    assert page.evaluate("window._chg") == 1
+    assert page.evaluate("document.querySelector('#task-select').value") == TASK["task"]
+    page.evaluate("document.querySelector('#task-select').value = ''")   # programmatic set mirrors onto the face
+    assert btn.inner_text().strip() == ""
     page.close()
