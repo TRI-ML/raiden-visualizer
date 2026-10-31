@@ -125,6 +125,9 @@ body.catalog-mode #sidebar .side-foot { display: none; }
 html[data-env="dev"] .contrib-row, html[data-env="local"] .contrib-row { display: none; }
 /* dev / local also skip the calibration & cameras card on the episode page (user, 2026-10-31) */
 html[data-env="dev"] .calib-card, html[data-env="local"] .calib-card { display: none; }
+/* dev / local also drop the Preview and Filter episodes cards on the dataset overview (user, 2026-10-31) */
+html[data-env="dev"] .ov-preview-card, html[data-env="local"] .ov-preview-card,
+html[data-env="dev"] .ov-filter-card, html[data-env="local"] .ov-filter-card { display: none; }
 
 .search-wrap input {
   width: 100%; padding: 9px 12px; border-radius: var(--radius-sm);
