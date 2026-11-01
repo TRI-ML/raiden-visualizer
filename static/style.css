@@ -238,6 +238,9 @@ select option { background: var(--bg-elev); color: var(--text); }
 .cat-origin.purchased { color: var(--warn); }
 .cat-embod { color: var(--accent); }
 .ov-header h1 { font-size: var(--fs-title); letter-spacing: -0.02em; }
+/* pills on the dataset title row are a size up (user, 2026-10-31) */
+.ov-header .cat-fmt { font-size: 13px; padding: 4px 12px; }
+.ov-header .cat-pills { gap: 8px; }
 .ov-header p { margin: 6px 0 0; }
 .ov-path-card { margin-bottom: 18px; }
 .ov-path-body { padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; }
