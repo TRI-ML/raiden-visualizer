@@ -722,9 +722,9 @@ select option { background: var(--bg-elev); color: var(--text); }
 }
 .pv-box .pv-cam { position: absolute; left: 6px; bottom: 6px; font-size: 10px; color: var(--on-video); background: var(--on-video-bg);
   padding: 1px 6px; border-radius: 4px; font-family: var(--mono); pointer-events: none; }
-.cat-card .pv-box { margin-bottom: 10px; }
-.cat-strip { display: flex; gap: 4px; margin: -4px 0 8px; }
-.cat-strip .pv-box { flex: 1; aspect-ratio: 16 / 9; border-radius: 4px; }
+.cat-card > .pv-box { margin-bottom: 10px; aspect-ratio: 2.6; }   /* single-camera card: short wide preview */
+.cat-strip { display: flex; gap: 6px; margin: 0 0 10px; }
+.cat-strip .pv-box { flex: 1; aspect-ratio: 16 / 9; border-radius: 6px; }
 .ov-task-row .pv-box { width: 64px; border-radius: 4px; }
 .task-head { margin-top: 8px; }
 .task-head .pv-box { margin-bottom: 6px; }
