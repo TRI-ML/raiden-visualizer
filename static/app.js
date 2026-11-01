@@ -710,7 +710,7 @@ function drawCatalogBars(metric, animate = true) {
   canvas.style.height = (rows.length * rowH + padTop + padBot) + "px";
   const { ctx, W, H } = setupCanvas("cat-bar-canvas");
   if (!rows.length) {
-    ctx.fillStyle = cssVar("--text-faint"); ctx.font = "12px 'Inter', sans-serif"; ctx.textAlign = "left";
+    ctx.fillStyle = cssVar("--text-faint"); ctx.font = "13px 'Inter', sans-serif"; ctx.textAlign = "left";
     ctx.fillText("computing…", 8, 20);
     return;
   }
@@ -720,7 +720,7 @@ function drawCatalogBars(metric, animate = true) {
   // x gridlines + axis ticks. IMPORTANT: the axis max must be >= maxV, else the
   // largest bar (scaled by v/tickMax) overshoots past the plot area. niceTicks
   // stops at the last tick <= maxV, so extend it by one step to a nice ceiling.
-  ctx.font = "10px 'JetBrains Mono', monospace";
+  ctx.font = "11px 'JetBrains Mono', monospace";
   let ticks = niceTicks(0, maxV, 4);
   const step = ticks.length > 1 ? ticks[1] - ticks[0] : (maxV || 1);
   let tickMax = ticks[ticks.length - 1] || maxV;
@@ -742,14 +742,14 @@ function drawCatalogBars(metric, animate = true) {
       ctx.fillStyle = cssVar("--accent");
       roundRect(ctx, x0, y + 2, bw, bh, 3); ctx.fill();
       ctx.globalAlpha = Math.max(0, (p - 0.7) / 0.3);
-      ctx.fillStyle = cssVar("--text-dim"); ctx.font = "11px 'JetBrains Mono', monospace"; ctx.textAlign = "left";
+      ctx.fillStyle = cssVar("--text-dim"); ctx.font = "12px 'JetBrains Mono', monospace"; ctx.textAlign = "left";
       ctx.fillText(m.fmt(r.v), x0 + bw + 6, y + bh / 2 + 4);
       ctx.globalAlpha = 1;
     });
   };
   rows.forEach((r, i) => {   // dataset names (right-aligned, truncated) are static
     const y = padTop + i * rowH, bh = rowH - 10;
-    ctx.fillStyle = cssVar("--text"); ctx.font = "12px 'Inter', sans-serif"; ctx.textAlign = "right";
+    ctx.fillStyle = cssVar("--text"); ctx.font = "13px 'Inter', sans-serif"; ctx.textAlign = "right";
     ctx.fillText(r.label.length > 24 ? r.label.slice(0, 23) + "…" : r.label, labelW - 12, y + bh / 2 + 4);
   });
   const still = !animate || document.hidden || matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -999,7 +999,7 @@ function drawTeachers(metric) {
   const summary = $("#teacher-summary");
   const { ctx, W, H } = setupCanvas("teacher-canvas");
   if (!first || !last) {
-    ctx.fillStyle = cssVar("--text-faint"); ctx.font = "12px 'Inter', sans-serif"; ctx.textAlign = "left";
+    ctx.fillStyle = cssVar("--text-faint"); ctx.font = "13px 'Inter', sans-serif"; ctx.textAlign = "left";
     ctx.fillText(data.building ? "Scanning raiden metadata…" : "No raiden teleop found.", 8, 22);
     if (summary) summary.textContent = data.building ? `${data.building} scanning…` : "";
     return;
@@ -1025,7 +1025,7 @@ function drawTeachers(metric) {
   // Plot: y-axis ticks on the left, one bar per day left→right.
   const padL = 40, padR = 8, padTop = 10, padBot = 26;
   const plotW = W - padL - padR, plotH = H - padTop - padBot;
-  ctx.font = "10px 'JetBrains Mono', monospace";
+  ctx.font = "11px 'JetBrains Mono', monospace";
   let ticks = niceTicks(0, maxV, 4);
   const step = ticks.length > 1 ? ticks[1] - ticks[0] : (maxV || 1);
   let tickMax = ticks[ticks.length - 1] || maxV;
@@ -1049,7 +1049,7 @@ function drawTeachers(metric) {
     roundRect(ctx, x, y, bw, bh, 2); ctx.fill();
   });
   // sparse x date labels (first, last, and mid) to avoid clutter
-  ctx.fillStyle = cssVar("--text-faint"); ctx.font = "9px 'JetBrains Mono', monospace"; ctx.textAlign = "center";
+  ctx.fillStyle = cssVar("--text-faint"); ctx.font = "10.5px 'JetBrains Mono', monospace"; ctx.textAlign = "center";
   const idxs = n <= 1 ? [0] : [0, Math.floor((n - 1) / 2), n - 1];
   [...new Set(idxs)].forEach((i) => {
     const x = padL + i * slot + slot / 2;
@@ -1829,7 +1829,7 @@ function drawHistogram(eps) {
   const plotW = W - pad.l - pad.r, plotH = H - pad.t - pad.b;
 
   // y gridlines + labels (counts)
-  ctx.font = "10px 'JetBrains Mono', monospace";
+  ctx.font = "11px 'JetBrains Mono', monospace";
   ctx.fillStyle = cssVar("--text-faint");
   ctx.textAlign = "right";
   const yTicks = niceTicks(0, maxCount, 4);
@@ -1878,7 +1878,7 @@ function drawScatter(eps, colors) {
   const Y = (y) => pad.t + plotH * (1 - y / (yMax || 1));
 
   // y gridlines (duration)
-  ctx.font = "10px 'JetBrains Mono', monospace";
+  ctx.font = "11px 'JetBrains Mono', monospace";
   ctx.textAlign = "right";
   niceTicks(0, yMax, 4).forEach((v) => {
     const y = Y(v);
