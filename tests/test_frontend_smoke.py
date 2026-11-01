@@ -122,6 +122,23 @@ def test_loader_hides_the_ui_until_data_lands(browser, site):
     page.close()
 
 
+def test_compare_bars_grow_in_unless_reduced_motion(browser, site):
+    page = _open(browser, site)
+    page.wait_for_selector(".cat-card")
+    page.wait_for_function("state.catBarsGrown === 1", timeout=3000)     # grew on load
+    page.evaluate("drawCatalogBars('episodes')")                         # same rows (theme switch / poll): in place
+    page.click('#cat-metric-toggle [data-metric="hours"]')               # a new metric grows again
+    page.wait_for_function("state.catBarsGrown === 2", timeout=3000)
+    page.close()
+    page = browser.new_page(viewport={"width": 1400, "height": 900}, reduced_motion="reduce")
+    page.route("**/api/**", _route)
+    page.goto(f"{site}/index.html", wait_until="domcontentloaded")
+    page.wait_for_selector(".cat-card")
+    page.wait_for_timeout(900)
+    assert page.evaluate("state.catBarsGrown") is None                   # drawn at full width, no tween
+    page.close()
+
+
 def test_catalog_error_still_shows_its_message(browser, site):
     page = browser.new_page(viewport={"width": 1400, "height": 900})
     page.route("**/api/**", lambda r: r.fulfill(status=500, body='{"error": "boom"}')
