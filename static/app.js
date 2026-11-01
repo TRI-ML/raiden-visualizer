@@ -503,7 +503,9 @@ async function renderCatalog() {
   sections.forEach(([title, pick]) => {
     const items = data.datasets.filter(pick);
     if (!items.length) return;
-    grid.appendChild(el("div", "cat-section-title", title));
+    const h = el("div", "cat-section-title", title);
+    h.appendChild(el("span", "n", `${items.length} dataset${items.length === 1 ? "" : "s"}`));
+    grid.appendChild(h);
     const sec = el("div", "cat-section"); grid.appendChild(sec);
     items.forEach((c) => renderCard(c, sec));
   });
