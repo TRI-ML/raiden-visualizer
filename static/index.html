@@ -230,8 +230,7 @@
 
       <div class="content-grid">
         <section class="card video-card">
-          <div class="card-head">
-            <h3>Cameras</h3>
+          <div class="card-head video-head">   <!-- no "Cameras" label (user, 2026-10-31); the head only carries the eye toggle -->
             <div class="controls">
               <div id="eye-toggle" class="seg">
                 <button data-eye="left" class="active">Left</button>
@@ -261,7 +260,8 @@
         <!-- Language labels (subtask / Argus), one row per segment: swatch matching the track, start time, text.
              The active row follows the video clock; a click seeks to the segment start. Hidden when none. -->
         <section class="card lang-card hidden" id="lang-card">
-          <div class="card-head"><h3>Language</h3><span id="lang-count" class="mono subtle"></span></div>
+          <!-- no "Language" label (user, 2026-10-31); the coloured rows speak for themselves -->
+          <span id="lang-count" class="mono subtle" hidden></span>
           <div id="lang-list" class="lang-list"></div>
         </section>
 
