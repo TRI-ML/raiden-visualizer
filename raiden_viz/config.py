@@ -37,7 +37,7 @@ SOURCES = [
     # layout nested under <run>_<step>/<task>/rollout_NNNN (Vibe) and <formal_id>/<run>_<step>/<task>/rollout_NNNN
     # (ranked evals, yam-eval PR #368); `depth` = dir levels above <task>. metadata.json carries rollout_info,
     # verdict and the score block (model label, prompt, judge source, station).
-    {"id": "policy_rollouts", "origin": "tri", "embodiments": ["YAM"], "label": "Policy rollouts (Vibe)", "kind": "raiden_rollouts",
+    {"id": "policy_rollouts", "origin": "tri", "embodiments": ["YAM"], "label": "Policy rollouts", "kind": "raiden_rollouts",
      "bucket": S3_BUCKET, "prefix": "tri-yam/policy_rollouts", "depth": 1},
     {"id": "eval_rollouts", "origin": "tri", "embodiments": ["YAM"], "label": "Eval rollouts", "kind": "raiden_rollouts",
      "bucket": S3_BUCKET, "prefix": "tri-yam/eval_rollouts", "depth": 2},

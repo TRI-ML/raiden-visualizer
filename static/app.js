@@ -491,7 +491,16 @@ async function renderCatalog() {
   ].map(([k, v]) => `<div class="cat-stat"><div class="cat-stat-v">${v}</div><div class="cat-stat-k">${k}</div></div>`).join("");
 
   grid.innerHTML = "";
-  data.datasets.forEach((c) => {
+  // two sections (user, 2026-10-31): datasets collected at TRI, then the open-source / purchased ones
+  const sections = [["TRI", (c) => c.origin === "tri"], ["Open source / Purchased", (c) => c.origin !== "tri"]];
+  sections.forEach(([title, pick]) => {
+    const items = data.datasets.filter(pick);
+    if (!items.length) return;
+    grid.appendChild(el("div", "cat-section-title", title));
+    const sec = el("div", "cat-section"); grid.appendChild(sec);
+    items.forEach((c) => renderCard(c, sec));
+  });
+  function renderCard(c, grid) {
     const card = document.createElement("div");
     card.className = "cat-card";
     const fmt = CAT_KIND_LABEL[c.kind] || c.kind || "";
@@ -526,11 +535,13 @@ async function renderCatalog() {
     const head = card.querySelector(".cat-card-head");
     // compact preview (user, 2026-10-31: the big main camera made every card tall): multi-camera sets show one
     // row of equal small tiles; single-camera sets a short wide box
-    const multi = c.preview && c.preview.cameras && c.preview.cameras.length > 1;
-    head.insertAdjacentElement("afterend", multi ? previewStrip(c.id, c.preview) : previewBox(c.id, c.preview));
+    head.insertAdjacentElement("afterend", previewBox(c.id, c.preview));
+    if (c.preview && c.preview.cameras && c.preview.cameras.length > 1) {
+      card.querySelector(".pv-box").insertAdjacentElement("afterend", previewStrip(c.id, c.preview));
+    }
     card.addEventListener("click", () => selectSource(c.id));
     grid.appendChild(card);
-  });
+  }
 
   // Stash the cards for the comparison bar chart (redrawn on metric toggle / resize).
   state.catalog = data.datasets;
