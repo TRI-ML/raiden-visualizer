@@ -22,6 +22,8 @@ import hashlib
 import logging
 import threading
 
+from . import config
+
 log = logging.getLogger(__name__)
 
 # Cap on remembered jobs. One entry per (episode, camera, eye) ever viewed would
@@ -48,6 +50,9 @@ class ClipJobs:
     def __init__(self) -> None:
         self._jobs: dict[str, dict] = {}
         self._lock = threading.Lock()
+        # bounded decoders: extra requests wait here (their state stays decoding=true, which the UI shows as
+        # "Preparing…"), so a burst of on-demand decodes cannot exhaust the container (config.MAX_DECODES)
+        self._slots = threading.BoundedSemaphore(config.MAX_DECODES) if config.MAX_DECODES > 0 else None
 
     def state(self, key: str) -> dict | None:
         """Current state, or None if this clip was never asked for. A copy, so a
@@ -92,7 +97,11 @@ class ClipJobs:
         error = error_type = None
         path = None
         try:
-            path = produce()
+            if self._slots is not None:
+                with self._slots:
+                    path = produce()
+            else:
+                path = produce()
         except Exception as e:
             error, error_type = str(e), type(e).__name__
             # LOG it. The state carries the message, but a decode that dies with
