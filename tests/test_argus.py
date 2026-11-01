@@ -21,7 +21,8 @@ def _table_bytes():
 def test_join_by_stem_and_by_index_only_sol_subtasks(monkeypatch, tmp_path):
     monkeypatch.setattr(cache, "get_json", lambda name, remote=False: None)
     monkeypatch.setattr(cache, "put_json", lambda name, value, remote=False: None)
-    monkeypatch.setattr(argus.s3, "list_dirs", lambda prefix, bucket=None: ["abc130k_t007_fold_shirt", "abc130k_t008_other"])
+    monkeypatch.setattr(argus.s3, "list_dirs", lambda prefix, bucket=None: ["abc130k_t007_fold_shirt", "abc130k_t008_other",
+                                                                           "abc130k_t009_put_the_credit_cards_into_the_card_holde"])
     monkeypatch.setattr(argus.s3, "list_keys", lambda prefix, bucket=None, suffix=None: [type("O", (), {"key": prefix + "/chunk-000/file-000.parquet"})()])
     monkeypatch.setattr(argus.s3, "get_bytes", lambda key, bucket=None: _table_bytes())
     argus._repos.clear(); argus._tables.clear()
@@ -31,6 +32,8 @@ def test_join_by_stem_and_by_index_only_sol_subtasks(monkeypatch, tmp_path):
     assert argus.annotations_for(abc, "fold_shirt", "episode_bbbb-2222") == []                # whole-task rows don't count
     assert argus.annotations_for(abc, "unknown_task", "episode_aaaa-1111") == []
     assert argus.coverage(abc, "fold_shirt", ["episode_aaaa-1111", "episode_bbbb-2222"]) == 1
+    # repo names are capped at 53 chars: a truncated suffix still finds the task's table
+    assert argus.annotations_for(abc, "put_the_credit_cards_into_the_card_holder", "episode_aaaa-1111")[0]["text"] == "reach"
     molmo = {"id": "molmo_t", "argus": {"tables": "p/tables", "repo": "molmo_yam_v3", "join": "index"}}
     assert argus.annotations_for(molmo, "any task", "episode_000000")[0]["text"] == "reach"
     assert argus.coverage(molmo, "any task", ["episode_000000", "episode_000001", "episode_000009"]) == 1
