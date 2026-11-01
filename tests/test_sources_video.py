@@ -137,3 +137,39 @@ def test_truncated_svo2_keeps_the_frames_before_the_cut(tmp_path, monkeypatch):
     with pytest.raises(ValueError, match="corrupt .svo2"):
         svo._extract_h264(tmp_path / "x.svo2", tmp_path / "y.h264")
     assert not (tmp_path / "y.h264").exists()    # the empty scratch file is removed
+
+
+def test_yam_detail_reads_the_mined_blob_without_touching_the_mcap(monkeypatch):
+    """First open of a featured episode must not re-download the MCAP: the mined detail is a derived-tier blob."""
+    from raiden_viz import s3, sources
+    src = sources.YamMcapSource({"id": "yam", "label": "Y", "kind": "yam", "bucket": "b", "prefix": "p"})
+    obj = s3.S3Object(key="p/T/e/output.mcap", size=500_000_000, etag="e1")
+    monkeypatch.setattr(src, "_head", lambda task, ep: obj)
+    monkeypatch.setattr(src, "_sidecar", lambda ep: {})
+    monkeypatch.setattr(src, "_mine", lambda *a, **k: pytest.fail("mined the MCAP although the blob exists"))
+    blob = {"etag": "e1", "cameras": ["cam_high"], "instruction": "fold", "annotations": [], "robot": None}
+    monkeypatch.setattr(sources.cache, "get_json", lambda name, remote=False: blob if name == "yam_e1_meta.json" and remote else None)
+    d = src.episode_detail("T", "e")
+    assert d["cameras"] == [{"name": "cam_high", "has_video": True, "eyes": ["left"]}]
+    assert d["instruction"] == "fold"
+
+
+def test_featured_warm_builds_the_detail_of_every_featured_episode():
+    from raiden_viz import warm
+
+    class Src:
+        def featured_episodes(self, task):
+            return ["e1", "e2"]
+        def __init__(self):
+            self.detail_calls, self.clip_calls = [], []
+        def episode_detail(self, task, ep):
+            self.detail_calls.append((task, ep))
+            return {"cameras": [{"name": "cam_high", "has_video": True}]}
+        def video_path(self, task, ep, cam, eye):
+            self.clip_calls.append((task, ep, cam, eye))
+        def poster_path(self, *a):
+            return None
+    src = Src()
+    assert warm.warm_featured(src, ["T"], workers=1) == 0
+    assert sorted(src.detail_calls) == [("T", "e1"), ("T", "e2")]
+    assert sorted(src.clip_calls) == [("T", "e1", "cam_high", "left"), ("T", "e2", "cam_high", "left")]

@@ -135,3 +135,15 @@ def test_scratch_path_is_private_and_evictor_safe(tmp_path):
     t.start(); t.join()
     assert len(seen) == 2          # a different thread gets a different file
     assert ".tmp" in p.name        # the evictor skips names containing .tmp
+
+
+def test_evict_keeps_json_blobs(cache_dir, monkeypatch):
+    """Per-episode detail/stat blobs are tiny and each stands in for a huge download: the LRU must skip them."""
+    import os
+    monkeypatch.setattr(config, "CACHE_MAX_GB", 1 / 1024**3 * 2_000)   # cap = 2000 bytes
+    old_clip = cache_dir / "yam_e_cam.mp4"; old_clip.write_bytes(b"x" * 3000)
+    os.utime(old_clip, (1, 1))
+    blob = cache_dir / "yam_e_meta.json"; blob.write_text("{}")
+    os.utime(blob, (2, 2))
+    cache.evict(force=True)
+    assert not old_clip.exists() and blob.exists()
