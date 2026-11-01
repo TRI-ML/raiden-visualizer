@@ -14,7 +14,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import cache, catalog, clips, config, contrib, raiden_teachers, sources
+from . import cache, catalog, clips, config, contrib, raiden_teachers, sources, jobs
 
 logger = logging.getLogger("raiden_viz")
 
@@ -405,8 +405,18 @@ def index_rebuild(sid: str):
 
 
 # ---- server-side warm: everything a task needs, left in the derived tier --------
-_WARMS: dict[str, dict] = {}
-_WARMS_LOCK = threading.Lock()
+# Every warm runs as a jobs.py child (one at a time per host, niced) and reports through a status file, so the
+# API process is never starved — see jobs.py for why.
+
+
+def _trim_failed(st: dict) -> dict:
+    """The per-item failure list in a result is for logs, not the status poll: keep its count (+ a few task names)."""
+    out = dict(st)
+    res = out.get("result")
+    if isinstance(res, dict) and isinstance(res.get("failed"), list):
+        out["result"] = {**{k: v for k, v in res.items() if k != "failed"}, "failed_n": len(res["failed"]),
+                         "failed_tasks": [f[0] for f in res["failed"] if isinstance(f, (list, tuple)) and f][:20]}
+    return out
 
 
 @app.post("/api/sources/{sid}/tasks/{task}/warm")
@@ -418,32 +428,7 @@ def warm_start(sid: str, task: str, workers: int = Query(3), posters: bool = Que
     src = _src(sid)
     if not hasattr(src, "warm_task"):
         raise HTTPException(404, "source cannot be warmed")
-    key = f"{sid}/{task}"
-    with _WARMS_LOCK:
-        st = _WARMS.get(key)
-        if st and st["running"]:
-            return dict(st)
-        st = _WARMS[key] = {"running": True, "done": False, "total": 0, "completed": 0,
-                            "failed": 0, "error": None, "started_at": time.time(),
-                            "result": None}
-
-    def progress(done, total, res):
-        st["completed"], st["total"] = done, total
-        if res is not None:
-            st["failed"] += 1
-
-    def run():
-        try:
-            st["result"] = src.warm_task(task, workers=max(1, min(workers, 6)), progress=progress,
-                                         posters=posters, details=details)
-        except Exception as e:  # noqa: BLE001
-            logger.exception("warm failed for %s", key)
-            st["error"] = str(e)
-        finally:
-            st["running"], st["done"] = False, True
-
-    threading.Thread(target=run, daemon=True, name=f"warm-{task}").start()
-    return dict(st)
+    return jobs.start("task", sid, task, src=src, workers=workers, posters=posters, details=details)
 
 
 @app.post("/api/sources/{sid}/warm")
@@ -453,41 +438,12 @@ def warm_source_featured(sid: str, workers: int = Query(2)):
     writes the derived tier. The deployed task is the only principal that can write the
     prod derived bucket, so the hosted site is pre-warmed through this route. Background,
     idempotent while running; status at GET /api/sources/{sid}/warm."""
-    from . import warm as warm_mod
-    src = _src(sid)
-    key = f"{sid}/*"
-    with _WARMS_LOCK:
-        st = _WARMS.get(key)
-        if st and st["running"]:
-            return dict(st)
-        st = _WARMS[key] = {"running": True, "done": False, "total": 0, "completed": 0,
-                            "failed": 0, "error": None, "started_at": time.time(), "result": None}
-
-    def run():
-        try:
-            tasks = src.list_tasks()
-            st["total"] = len(tasks)
-            for i, task in enumerate(tasks, 1):
-                if warm_mod.warm_featured(src, [task], workers=max(1, min(workers, 4))):
-                    st["failed"] += 1
-                st["completed"] = i
-            warm_mod.warm_meta(src)
-            st["result"] = {"tasks": len(tasks), "featured_n": config.FEATURED_N}
-        except Exception as e:  # noqa: BLE001
-            logger.exception("featured warm failed for %s", sid)
-            st["error"] = str(e)
-        finally:
-            st["running"], st["done"] = False, True
-
-    threading.Thread(target=run, daemon=True, name=f"warm-featured-{sid}").start()
-    return dict(st)
+    return jobs.start("featured", sid, src=_src(sid), workers=workers)
 
 
 @app.get("/api/sources/{sid}/warm")
 def warm_source_status(sid: str):
-    with _WARMS_LOCK:
-        st = _WARMS.get(f"{sid}/*")
-    return dict(st) if st else {"running": False, "done": False}
+    return jobs.status("featured", sid)
 
 
 @app.get("/api/sources/{sid}/previews")
@@ -504,59 +460,17 @@ def previews_warm_start(sid: str, task: str | None = Query(None), only_missing: 
     """Build the small preview assets for every task of a source (or one task) in the
     background, one task at a time. Raw sources are read by S3 range (file head),
     never decoded in full."""
-    src = _src(sid)
-    key = f"{sid}/__previews__"
-    with _WARMS_LOCK:
-        st = _WARMS.get(key)
-        if st and st["running"]:
-            return dict(st)
-        st = _WARMS[key] = {"running": True, "done": False, "total": 0, "completed": 0,
-                            "failed": 0, "error": None, "started_at": time.time(), "result": None}
-
-    def progress(done, total, res):
-        st["completed"], st["total"] = done, total
-        if res is not None:
-            st["failed"] += 1
-
-    def run():
-        try:
-            st["result"] = src.preview_warm(tasks=[task] if task else None, progress=progress,
-                                            only_missing=only_missing)
-        except Exception as e:  # noqa: BLE001
-            logger.exception("preview warm failed for %s", key)
-            st["error"] = str(e)
-        finally:
-            st["running"], st["done"] = False, True
-
-    threading.Thread(target=run, daemon=True, name=f"previews-{sid}").start()
-    return dict(st)
+    return jobs.start("previews", sid, src=_src(sid), task_filter=task, only_missing=only_missing)
 
 
 @app.get("/api/sources/{sid}/previews/warm")
 def previews_warm_status(sid: str):
-    with _WARMS_LOCK:
-        st = _WARMS.get(f"{sid}/__previews__")
-    if st is None:
-        return {"running": False, "done": False}
-    out = dict(st)
-    if out.get("result"):
-        out["result"] = {**{k: v for k, v in out["result"].items() if k != "failed"},
-                         "failed_n": len(out["result"].get("failed", [])),
-                         "failed_tasks": [f[0] for f in out["result"].get("failed", [])][:20]}
-    return out
+    return _trim_failed(jobs.status("previews", sid))
 
 
 @app.get("/api/sources/{sid}/tasks/{task}/warm")
 def warm_status(sid: str, task: str):
-    with _WARMS_LOCK:
-        st = _WARMS.get(f"{sid}/{task}")
-    if st is None:
-        return {"running": False, "done": False}
-    out = dict(st)
-    if out.get("result"):
-        out["result"] = {k: v for k, v in out["result"].items() if k != "failed"} | \
-            {"failed_n": len(out["result"].get("failed", []))}
-    return out
+    return _trim_failed(jobs.status("task", sid, task))
 
 
 @app.get("/api/sources/{sid}/scan")

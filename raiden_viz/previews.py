@@ -28,7 +28,7 @@ from pathlib import Path
 
 from mcap.reader import NonSeekingReader
 
-from . import cache, s3, svo, yam
+from . import cache, config, s3, svo, yam
 
 log = logging.getLogger("raiden_viz")
 
@@ -114,7 +114,7 @@ def render_assets(src: Path, poster: Path, clip: Path, *, demuxer: str | None = 
     elementary stream (``demuxer`` = h264/hevc) or an mp4 (``demuxer`` None)."""
     vf = ",".join(([crop] if crop else []) + [f"scale={POSTER_W}:-2"])
     inp = ["-f", demuxer, "-r", str(fps), "-i", str(src)] if demuxer else ["-i", str(src)]
-    base = ["ffmpeg", "-y", "-loglevel", "error", *inp]
+    base = ["ffmpeg", "-y", "-loglevel", "error", *config.FFMPEG_THREADS, *inp]
     subprocess.run(base + ["-frames:v", "1", "-vf", vf, "-q:v", "5", "-f", "image2", str(poster)], check=True)
     subprocess.run(base + ["-t", str(CLIP_SECONDS), "-vf", vf, "-c:v", "libx264", "-preset", "veryfast",
                            "-crf", "28", "-pix_fmt", "yuv420p", "-an", "-movflags", "+faststart",

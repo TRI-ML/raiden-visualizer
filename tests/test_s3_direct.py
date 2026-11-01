@@ -169,7 +169,6 @@ def test_warm_endpoint_runs_warm_task_in_the_background(monkeypatch):
             progress(1, 2, None); progress(2, 2, ("e", "c", "boom"))
             return {"task": task, "episodes": 1, "clips": 1, "ok": 1, "failed": [("e", "c", "boom")]}
 
-    monkeypatch.setattr(app_module, "_WARMS", {})
     monkeypatch.setattr(app_module, "_src", lambda sid: Src())
     c = TestClient(app_module.app)
     assert c.post("/api/sources/yam_sim/tasks/plate/warm").status_code == 200

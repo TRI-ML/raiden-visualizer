@@ -29,6 +29,8 @@ import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
+from . import config
+
 # LeRobot names video features "observation.images.<cam>"; the short name is what
 # the viewer shows and routes on, the full key is what the parquet columns use.
 VIDEO_PREFIX = "observation.images."
@@ -288,7 +290,7 @@ def covers_whole_file(from_ts: float, to_ts, duration, fps=None) -> bool:
 def remux(src: Path, dst: Path) -> dict:
     """Stream-copy an already browser-playable mp4 into a faststart mp4: no decode,
     no re-encode, milliseconds. Used when the source file is exactly one episode."""
-    cmd = ["ffmpeg", "-y", "-loglevel", "error", "-i", str(src),
+    cmd = ["ffmpeg", "-y", "-loglevel", "error", *config.FFMPEG_THREADS, "-i", str(src),
            "-c", "copy", "-movflags", "+faststart", "-f", "mp4", str(dst)]
     subprocess.run(cmd, check=True, capture_output=True)
     return {"remuxed": True}
@@ -298,7 +300,7 @@ def transcode(src: Path, dst: Path, from_ts: float = 0.0, to_ts=None, fps=None) 
     """Transcode one camera's clip (AV1) to browser-safe H.264, trimmed to the
     episode's window in the shared mp4. ``-ss``/``-to`` after ``-i`` are absolute,
     frame-accurate input timestamps; clips are short so the extra decode is cheap."""
-    cmd = ["ffmpeg", "-y", "-loglevel", "error", "-i", str(src)]
+    cmd = ["ffmpeg", "-y", "-loglevel", "error", *config.FFMPEG_THREADS, "-i", str(src)]
     if from_ts and from_ts > 0:
         cmd += ["-ss", f"{from_ts:.6f}"]
     if to_ts is not None:
@@ -313,5 +315,5 @@ def transcode(src: Path, dst: Path, from_ts: float = 0.0, to_ts=None, fps=None) 
 
 def poster(src: Path, dst: Path) -> None:
     """First frame of a clip as a JPEG, shown in the tile before the video starts."""
-    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(src), "-frames:v", "1",
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", *config.FFMPEG_THREADS, "-i", str(src), "-frames:v", "1",
                     "-q:v", "4", "-f", "image2", str(dst)], check=True)

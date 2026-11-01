@@ -26,6 +26,8 @@ from pathlib import Path
 import numpy as np
 from mcap.reader import make_reader
 
+from . import config
+
 # A camera topic is one whose schema is foxglove.CompressedVideo. Rather than
 # match on name suffixes (which differ across conventions), we detect cameras by
 # schema and derive a clean name from the topic.
@@ -237,7 +239,7 @@ def extract_camera_mp4(mcap_path: Path, camera: str, out_mp4: Path, fps: int = 3
         vcodec = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p"]
     subprocess.run(
         [
-            "ffmpeg", "-y", "-loglevel", "error",
+            "ffmpeg", "-y", "-loglevel", "error", *config.FFMPEG_THREADS,
             "-f", demuxer, "-r", str(fps), "-i", str(raw),
             *vcodec, "-movflags", "+faststart",
             "-f", "mp4", str(out_mp4),
