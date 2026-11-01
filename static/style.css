@@ -358,7 +358,7 @@ select option { background: var(--bg-elev); color: var(--text); }
 
 .content-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) 260px;   /* cameras wide, metadata a narrow column */
   gap: 18px;
   align-items: start;
 }
@@ -378,7 +378,15 @@ select option { background: var(--bg-elev); color: var(--text); }
 .lang-seg:hover { opacity: 0.8; }
 .lang-seg.active { opacity: 1; box-shadow: inset 0 0 0 2px var(--text); }
 .lang-head { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--text); pointer-events: none; }
-.lang-now { padding: 0 16px 12px; font-size: var(--fs-body); font-weight: 600; color: var(--text); min-height: 18px; }
+.lang-card { grid-column: 1 / -1; }
+.lang-list { max-height: 220px; overflow-y: auto; padding: 4px 16px 10px; }
+.lang-row { display: flex; align-items: center; gap: 12px; padding: 6px 6px; border-bottom: 1px solid var(--border-soft); font-size: var(--fs-small); color: var(--text-dim); cursor: pointer; border-radius: 6px; }
+.lang-row:last-child { border-bottom: none; }
+.lang-row:hover { background: var(--bg-elev); }
+.lang-row.active { background: var(--accent-soft); color: var(--text); font-weight: 600; }
+.lang-swatch { flex: none; width: 10px; height: 10px; border-radius: 3px; }
+.lang-t { flex: none; min-width: 48px; color: var(--text-faint); }
+.lang-row.active .lang-t { color: var(--accent); }
 .ann-t { color: var(--accent); min-width: 52px; flex: none; }
 .ann-text { color: var(--text-dim); }
 
@@ -481,7 +489,7 @@ select option { background: var(--bg-elev); color: var(--text); }
 .meta-grid { padding: 6px 16px 14px; }
 .meta-row {
   display: flex; justify-content: space-between; gap: 16px;
-  padding: 9px 0; border-bottom: 1px solid var(--border-soft); font-size: var(--fs-body);
+  padding: 6px 0; border-bottom: 1px solid var(--border-soft); font-size: var(--fs-small);
 }
 .meta-row:last-child { border-bottom: none; }
 .meta-key { color: var(--text-dim); }
@@ -541,7 +549,7 @@ select option { background: var(--bg-elev); color: var(--text); }
 
 @media (max-width: 980px) {
   .content-grid { grid-template-columns: 1fr; }
-  .video-card, .meta-card, .rollout-card, .plot-card, .calib-card { grid-column: 1; }
+  .video-card, .meta-card, .lang-card, .rollout-card, .plot-card, .calib-card { grid-column: 1; }
 }
 
 /* ---------- Episode filter (overview) ---------- */

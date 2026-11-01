@@ -2332,48 +2332,63 @@ function renderRollout(md) {
   if (!shown) notAvailable(body, "No rollout parameters recorded for this episode.");
 }
 
-// Language track: the subtask / Argus labels ({t, text} transitions from the episode detail) become colored
-// segments [t_i, t_{i+1}) on a track above the scrubber (same width, so the playhead lines up with it), synced to
-// the video clock like the plot cursors (updateLangTimeline runs from drawAllCursors). One color per distinct label;
-// the text shows once, under the transport. Hidden when the episode has no labels.
+// Language labels: the subtask / Argus {t, text} transitions from the episode detail become segments [t_i, t_{i+1})
+// drawn twice — colored blocks on a track above the scrubber (same width, so the playhead lines up) and one row
+// each in the Language card (swatch, start, text). One color per distinct label. Synced to the video clock like
+// the plot cursors (updateLangTimeline runs from drawAllCursors); clicking a block or row seeks to the segment
+// start and leaves the play/pause state alone. Hidden when the episode has no labels.
 function renderAnnotations(anns, durationS) {
-  const track = $("#lang-track"), now = $("#lang-now");
+  const track = $("#lang-track"), card = $("#lang-card"), list = $("#lang-list");
   if (!track) return;
   const timed = anns.filter((a) => a.t != null).sort((a, b) => a.t - b.t);
   track.classList.toggle("hidden", !timed.length);
-  now.classList.toggle("hidden", !timed.length);
+  card.classList.toggle("hidden", !timed.length);
   track.innerHTML = "";
-  now.textContent = "";
+  list.innerHTML = "";
   if (!timed.length) { state.langSegs = []; return; }
   const last = timed[timed.length - 1].t;
   const dur = durationS > last ? durationS : last + 1;   // no duration known: give the last label a second
   state.langSegs = timed.map((a, i) => ({ start: a.t, end: i + 1 < timed.length ? timed[i + 1].t : dur, text: a.text || "" }));
   state.langDur = dur;
+  $("#lang-count").textContent = `${state.langSegs.length} segments`;
   const labels = [...new Set(state.langSegs.map((s) => s.text))];
   state.langSegs.forEach((s, i) => {
+    const color = PALETTE[labels.indexOf(s.text) % PALETTE.length];
+    const seek = () => { seekAll(s.start); updateTransportUI(s.start); drawAllCursors(s.start); drawAllTraces(s.start); };
     const bar = el("div", "lang-seg");
     bar.style.left = `${(100 * s.start) / dur}%`;
     bar.style.width = `${(100 * (s.end - s.start)) / dur}%`;
-    bar.style.background = PALETTE[labels.indexOf(s.text) % PALETTE.length];
+    bar.style.background = color;
     bar.title = `${s.start.toFixed(1)}–${s.end.toFixed(1)} s · ${s.text}`;
     bar.dataset.i = i;
-    bar.onclick = () => { seekAll(s.start); updateTransportUI(s.start); drawAllCursors(s.start); drawAllTraces(s.start); };
+    bar.onclick = seek;
     track.appendChild(bar);
+    const row = el("div", "lang-row");
+    row.dataset.i = i;
+    const sw = el("span", "lang-swatch");
+    sw.style.background = color;
+    row.appendChild(sw);
+    row.appendChild(el("span", "lang-t mono", `${s.start.toFixed(1)}s`));
+    row.appendChild(el("span", "lang-text", s.text));
+    row.onclick = seek;
+    list.appendChild(row);
   });
   track.appendChild(el("div", "lang-head"));
   updateLangTimeline(currentTime());
 }
 
-// Move the playhead and highlight the segment that contains `secs`.
+// Move the playhead and highlight the segment that contains `secs` (track block + list row, scrolled into view).
 function updateLangTimeline(secs) {
   const segs = state.langSegs || [];
   if (!segs.length) return;
   let active = -1;
   segs.forEach((s, i) => { if (secs >= s.start && secs < s.end) active = i; });
   if (active < 0 && secs >= segs[segs.length - 1].end) active = segs.length - 1;
-  $("#lang-now").textContent = active >= 0 ? segs[active].text : "";
-  document.querySelectorAll("#lang-track .lang-seg")
-    .forEach((n) => n.classList.toggle("active", Number(n.dataset.i) === active));
+  document.querySelectorAll("#lang-track .lang-seg, #lang-list .lang-row").forEach((n) => {
+    const on = Number(n.dataset.i) === active;
+    if (on && !n.classList.contains("active") && n.classList.contains("lang-row")) n.scrollIntoView({ block: "nearest" });
+    n.classList.toggle("active", on);
+  });
   const head = $("#lang-track .lang-head");
   if (head) head.style.left = `${Math.min(100, Math.max(0, (100 * secs) / state.langDur))}%`;
 }

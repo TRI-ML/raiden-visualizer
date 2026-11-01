@@ -156,29 +156,36 @@ def test_episode_view_renders_camera_grid_and_generic_names(browser, site):
 def test_language_timeline_syncs_with_the_clock(browser, site):
     page = _open(browser, site, "#demo/kitchen_put_spoon_seg48/chunk_000__episode_000001")
     page.wait_for_selector("#camera-grid .cam-tile")
-    assert not page.locator("#lang-track").is_visible()                # no labels: no track, no label line
-    assert not page.locator("#lang-now").is_visible()
+    assert not page.locator("#lang-track").is_visible()                # no labels: no track, no Language card
+    assert not page.locator("#lang-card").is_visible()
     assert "repeat(2" in page.evaluate("document.querySelector('#camera-grid').style.gridTemplateColumns")   # 1×N row
     page.close()
     page = _open(browser, site, "#demo/kitchen_put_spoon_seg48/chunk_000__episode_000003")
     page.wait_for_selector("#lang-track .lang-seg")
-    segs = page.locator("#lang-track .lang-seg")
-    assert segs.count() == 3
-    assert all(segs.nth(i).inner_text() == "" for i in range(3))      # colored blocks only
+    segs, rows = page.locator("#lang-track .lang-seg"), page.locator("#lang-list .lang-row")
+    assert segs.count() == 3 and rows.count() == 3
+    assert all(segs.nth(i).inner_text() == "" for i in range(3))      # colored blocks only on the track
     colors = [segs.nth(i).evaluate("n => n.style.background") for i in range(3)]
     assert all(colors) and len(set(colors)) == 3                       # one color per distinct label
+    assert [rows.nth(i).locator(".lang-swatch").evaluate("n => n.style.background") for i in range(3)] == colors
+    assert "grasp" in rows.nth(1).inner_text() and "6.0s" in rows.nth(1).inner_text()
     # the track sits in the scrub-wrap, so it spans exactly the scrubber's width
     assert page.evaluate("document.querySelector('#lang-track').getBoundingClientRect().width") == \
         page.evaluate("document.querySelector('#scrubber').getBoundingClientRect().width")
-    assert page.locator("#lang-now").inner_text() == ""              # t=0 is before the first label
-    page.evaluate("drawAllCursors(1)")
-    assert "reach" in page.locator("#lang-now").inner_text()
-    page.evaluate("drawAllCursors(7)")                               # the transport tick drives the track
-    assert "grasp" in page.locator("#lang-now").inner_text()
+    assert rows.locator(".active").count() == 0                        # t=0 is before the first label
+    page.evaluate("drawAllCursors(7)")                                 # the transport tick drives both views
     assert page.locator("#lang-track .lang-seg.active").get_attribute("data-i") == "1"
+    assert page.locator("#lang-list .lang-row.active").get_attribute("data-i") == "1"
     head_x = page.evaluate("parseFloat(document.querySelector('#lang-track .lang-head').style.left)")
     assert abs(head_x - 100 * 7 / 16.1) < 0.5
-    segs.nth(2).click()                                              # clicking a segment seeks to its start
-    assert "drawer" in page.locator("#lang-now").inner_text()
+    rows.nth(2).click()                                                # a row click seeks to the segment START
+    assert page.locator("#lang-track .lang-seg.active").get_attribute("data-i") == "2"
+    assert page.locator("#time-label").inner_text().startswith("11.0s")
+    segs.nth(0).click()                                                # so does a track block
+    assert page.locator("#time-label").inner_text().startswith("0.5s")
+    # dragging the scrubber fires `input` events; each one moves the clock and the active segment
+    page.evaluate("state.duration = 16.1; const s = document.querySelector('#scrubber'); s.value = 450; s.dispatchEvent(new Event('input'))")
+    assert page.locator("#time-label").inner_text().startswith("7.2s")
+    assert page.locator("#lang-list .lang-row.active").get_attribute("data-i") == "1"
     page.screenshot(path=str(SHOTS / "argus_timeline.png"))
     page.close()
