@@ -816,12 +816,23 @@ class RolloutSource(RaidenSource):
     """yam-eval policy rollouts: the raiden recording layout (metadata.json + cameras/*.svo2 + robot_data.npz)
     nested under `<run>_<step>/<task>/rollout_NNNN` (Vibe, depth 1) or `<formal_id>/<run>_<step>/<task>/rollout_NNNN`
     (ranked evals, depth 2). One task spans every model / eval, so the episode id carries the lead dirs:
-    `<lead>::<lead>::rollout_NNNN` ("::" never appears in run or eval ids and survives the URL path)."""
+    `<lead>::<lead>::rollout_NNNN` ("::" never appears in run or eval ids and survives the URL path).
+
+    With `sessions_prefix` the source also lists the rollouts of yam-eval EVAL SESSIONS
+    (`<sessions_prefix>/<station>/<eval_id>/eval_session.json`): their recordings live in the Vibe tree and are
+    found through the row's `recording_s3` or the vibe History record (`<history_prefix>/<station>/<run_id>/record.json`).
+    They appear as `<eval_id>::<run>_<step>::rollout_NNNN` under the session's task; missing recordings are skipped."""
     SEP = "::"
+    SESSIONS_TTL_S = 300
 
     def __init__(self, spec):
         super().__init__(spec)
         self.depth = int(spec.get("depth", 1))
+        self.sessions_prefix = (spec.get("sessions_prefix") or "").strip("/")
+        self.history_prefix = (spec.get("history_prefix") or "").strip("/")
+        self._sessions_lock = threading.Lock()
+        self._sessions_at = 0.0
+        self._session_map: dict[tuple[str, str], dict] = {}   # (task, episode) -> {prefix, session, row}
 
     def _leads(self) -> list[str]:
         leads = [""]
@@ -830,17 +841,100 @@ class RolloutSource(RaidenSource):
                      for lead in leads for d in s3.list_dirs(f"{self.prefix}/{lead}".rstrip("/"), bucket=self.bucket)]
         return leads
 
+    # ---- eval sessions ----
+    def _recording_prefix(self, station: str, row: dict) -> str | None:
+        """Key prefix of the rollout's recording: the row's recording_s3, else the vibe History record's (memoised
+        on disk: a run's recording never moves)."""
+        uri = row.get("recording_s3")
+        if not uri and self.history_prefix:
+            key = f"evalrec_{self.id}_{row['run_id']}.json"
+            hit = cache.get_json(key)
+            if hit is None:
+                rec = s3.try_get_json(f"{self.history_prefix}/{station}/{row['run_id']}/record.json", bucket=self.bucket) or {}
+                hit = {"recording_s3": rec.get("recording_s3") or ""}
+                if hit["recording_s3"]:
+                    cache.put_json(key, hit)
+            uri = hit["recording_s3"]
+        if not uri:
+            return None
+        m = re.match(r"s3://([^/]+)/(.+?)/?$", uri)
+        if not m or m.group(1) != self.bucket:
+            log.warning("%s: rollout %s recording %r is not in bucket %s; skipped", self.id, row.get("run_id"), uri, self.bucket)
+            return None
+        return m.group(2)
+
+    def _sessions(self) -> dict[tuple[str, str], dict]:
+        if not self.sessions_prefix:
+            return {}
+        with self._sessions_lock:
+            if time.time() - self._sessions_at < self.SESSIONS_TTL_S:
+                return self._session_map
+            out: dict[tuple[str, str], dict] = {}
+            for station in s3.list_dirs(self.sessions_prefix, bucket=self.bucket):
+                for eval_id in s3.list_dirs(f"{self.sessions_prefix}/{station}", bucket=self.bucket):
+                    sess = s3.try_get_json(f"{self.sessions_prefix}/{station}/{eval_id}/eval_session.json", bucket=self.bucket)
+                    if not sess or not sess.get("task"):
+                        continue          # an aborted session leaves only its reset picture behind
+                    for row in sess.get("rollouts") or []:
+                        if row.get("verdict") not in ("success", "failure") or not row.get("run_id"):
+                            continue
+                        prefix = self._recording_prefix(station, row)
+                        if not prefix or s3.try_head(f"{prefix}/metadata.json", bucket=self.bucket) is None:
+                            log.warning("%s: eval %s rollout %s has no recording in S3; skipped", self.id, eval_id, row["run_id"])
+                            continue
+                        parts = prefix.split("/")          # …/<run>_<step>/<task>/rollout_NNNN
+                        episode = self.SEP.join([eval_id, parts[-3], parts[-1]])
+                        out[(sess["task"], episode)] = {"prefix": prefix, "session": sess, "row": row}
+            self._session_map, self._sessions_at = out, time.time()
+            return out
+
+    def _session_entry(self, task, episode) -> dict | None:
+        hit = self._sessions().get((task, episode))
+        if hit is None and self.sessions_prefix and self.SEP in episode:
+            with self._sessions_lock:
+                self._sessions_at = 0.0           # a link to a rollout saved since the last refresh
+            hit = self._sessions().get((task, episode))
+        return hit
+
+    # ---- browsing ----
     def list_tasks(self) -> list[str]:
-        return sorted({t for lead in self._leads() for t in s3.list_dirs(f"{self.prefix}/{lead}", bucket=self.bucket)})
+        formal = {t for lead in self._leads() for t in s3.list_dirs(f"{self.prefix}/{lead}", bucket=self.bucket)}
+        return sorted(formal | {task for task, _ in self._sessions()})
 
     def list_episodes(self, task: str) -> list[str]:
-        return sorted(self.SEP.join(lead.split("/") + [r])
-                      for lead in self._leads() for r in s3.list_dirs(f"{self.prefix}/{lead}/{task}", bucket=self.bucket))
+        formal = [self.SEP.join(lead.split("/") + [r])
+                  for lead in self._leads() for r in s3.list_dirs(f"{self.prefix}/{lead}/{task}", bucket=self.bucket)]
+        return sorted(formal + [ep for t, ep in self._sessions() if t == task])
 
     def _ep_prefix(self, task, episode):
+        hit = self._session_entry(task, episode) if self.sessions_prefix else None
+        if hit:
+            return hit["prefix"]
         *lead, rollout = episode.split(self.SEP)
         return "/".join([self.prefix, *lead, task, rollout])
 
+    def episode_detail(self, task, episode):
+        d = super().episode_detail(task, episode)
+        hit = self._session_entry(task, episode) if self.sessions_prefix else None
+        if hit:
+            sess, row = hit["session"], hit["row"]
+            station = sess.get("station")
+            d["metadata"]["eval_session"] = {
+                "eval_id": sess.get("eval_id"), "operator": sess.get("operator"), "model": sess.get("model"),
+                "task_label": sess.get("task_label"), "prompt": sess.get("prompt"),
+                "station": station.get("id") if isinstance(station, dict) else station,
+                "verdict": row.get("verdict"), "run_id": row.get("run_id"),
+                "n": sess.get("n"), "k": sess.get("k"), "rate": sess.get("rate")}
+            d["instruction"] = d.get("instruction") or sess.get("prompt")
+            d["status"] = row.get("verdict")
+        return d
+
+    def episode_stat(self, task, episode):
+        rec = super().episode_stat(task, episode)
+        hit = self._session_entry(task, episode) if self.sessions_prefix else None
+        if hit:
+            rec["status"] = hit["row"].get("verdict")       # the eval's verdict, not the recorder's flag
+        return rec
 
 class YamMcapSource(Source):
     """One MCAP per episode. Download the big MCAP once, extract all small

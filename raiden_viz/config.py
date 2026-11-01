@@ -40,8 +40,12 @@ SOURCES = [
     # verdict and the score block (model label, prompt, judge source, station).
     {"id": "policy_rollouts", "origin": "tri", "embodiments": ["YAM"], "label": "Policy rollouts", "kind": "raiden_rollouts",
      "bucket": S3_BUCKET, "prefix": "tri-yam/policy_rollouts", "depth": 1},
+    # Eval rollouts: the ranked-eval tree plus the rollouts of the eval SESSIONS (eval_sessions/<station>/<eval_id>/
+    # eval_session.json), whose recordings sit in the Vibe tree and are found via recording_s3 / the vibe History
+    # record (sources.RolloutSource).
     {"id": "eval_rollouts", "origin": "tri", "embodiments": ["YAM"], "label": "Eval rollouts", "kind": "raiden_rollouts",
-     "bucket": S3_BUCKET, "prefix": "tri-yam/eval_rollouts", "depth": 2},
+     "bucket": S3_BUCKET, "prefix": "tri-yam/eval_rollouts", "depth": 2,
+     "sessions_prefix": "tri-yam/eval_sessions", "history_prefix": "tri-yam/vibe_history"},
     # ABC-130k: the full open-source YAM dataset (xdof/Amazon). Same Foxglove-MCAP
     # format as the yam source but with episode.mcap files, newer topic names
     # (/<cam>, -state) and H.265 video — all handled by the yam adapter/decoder.
