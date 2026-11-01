@@ -184,7 +184,8 @@ def get_catalog():
         base = card or {"id": spec["id"], "building": True}
         # The card's preview is frozen at build time; if the preview warm finished AFTER the card was built the
         # card would say "no preview" until a rebuild. Overlay a pick from the (memoized) previews blob instead.
-        if not base.get("preview") and hasattr(src, "previews"):
+        pv0 = base.get("preview") or {}
+        if not (pv0.get("poster_name") or pv0.get("poster_names")) and hasattr(src, "previews"):   # none, or no rendered poster
             pv = src.previews()
             if pv:
                 task = next(iter(pv))
