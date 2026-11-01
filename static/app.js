@@ -524,10 +524,10 @@ async function renderCatalog() {
     card.title = `${cams}${c.bucket ? ` · s3://${c.bucket}/${c.prefix ?? ""}` : ""}`;
     // Preview chosen at build time (stored on the card): poster now, clip on hover.
     const head = card.querySelector(".cat-card-head");
-    head.insertAdjacentElement("afterend", previewBox(c.id, c.preview));
-    if (c.preview && c.preview.cameras && c.preview.cameras.length > 1) {
-      card.querySelector(".pv-box").insertAdjacentElement("afterend", previewStrip(c.id, c.preview));
-    }
+    // compact preview (user, 2026-10-31: the big main camera made every card tall): multi-camera sets show one
+    // row of equal small tiles; single-camera sets a short wide box
+    const multi = c.preview && c.preview.cameras && c.preview.cameras.length > 1;
+    head.insertAdjacentElement("afterend", multi ? previewStrip(c.id, c.preview) : previewBox(c.id, c.preview));
     card.addEventListener("click", () => selectSource(c.id));
     grid.appendChild(card);
   });
