@@ -146,7 +146,7 @@ def list_sources():
     this host are listed (access-gated ones auto-hide where creds are missing)."""
     available = sources.get_sources(config.SOURCES)  # access-filtered registry
     return {"sources": [{"id": s["id"], "label": s["label"], "kind": s["kind"], "origin": s.get("origin"),
-                         "embodiments": s.get("embodiments")}
+                         "embodiments": s.get("embodiments"), "prod": s.get("prod", True)}
                         for s in config.SOURCES if s["id"] in available]}
 
 
@@ -189,7 +189,7 @@ def get_catalog():
             if pv:
                 task = next(iter(pv))
                 base = {**base, "preview": {"task": task, **pv[task]}}
-        cards.append({**base, "label": spec["label"], "kind": spec["kind"]})
+        cards.append({**base, "label": spec["label"], "kind": spec["kind"], "prod": spec.get("prod", True)})
     agg = {
         "num_datasets": len(cards),
         "total_episodes": sum(c.get("num_episodes") or 0 for c in cards),

@@ -483,6 +483,7 @@ async function renderCatalog() {
   try { data = await api("/api/catalog"); }
   catch (e) { grid.innerHTML = `<div class="subtle">Failed to load catalog: ${e.message}</div>`; return; }
   if (state.source) return;  // user navigated away while awaiting
+  if (ENV === "prod") data.datasets = data.datasets.filter((c) => c.prod !== false);   // dev-only datasets (e.g. yam_sim) leave Prod entirely
 
   const a = data.aggregate;
   agg.innerHTML = [
@@ -512,6 +513,7 @@ async function renderCatalog() {
   function renderCard(c, grid) {
     const card = document.createElement("div");
     card.className = "cat-card";
+    if (c.prod === false) card.classList.add("dev-only");   // hidden in the Prod feature set (config "prod": False)
     const fmt = CAT_KIND_LABEL[c.kind] || c.kind || "";
     const building = c.building;
     const failed = c.built_ok === false;
@@ -2288,6 +2290,9 @@ function renderMeta(md, d) {
     ["Subtasks", md.num_annotations || null],
     ["Timestamp", md.timestamp ? md.timestamp.replace("T", " ").slice(0, 19) : null],
     // "Converted" row dropped (user, 2026-10-31)
+    // yam-eval policy rollouts: just the verdict and the policy family, here instead of a separate card
+    ["Family", md.rollout_info && md.rollout_info.family],
+    ["Verdict", md.verdict],
   ];
   let shown = 0;
   rows.forEach(([k, val]) => {
@@ -2310,6 +2315,8 @@ function renderRollout(md) {
   const card = $("#rollout-card");
   const ri = md && md.rollout_info;
   if (!ri || typeof ri !== "object") { card.classList.add("hidden"); return; }
+  // yam-eval rollouts (they carry a score block / verdict): Family + Verdict live in the Metadata card, nothing else
+  if (md.score || md.verdict) { card.classList.add("hidden"); return; }
   card.classList.remove("hidden");
   $("#rollout-generator").textContent = "";   // generator id (e.g. yam_eval_policy_rollout) not shown (user, 2026-10-31)
   const body = $("#rollout-body");

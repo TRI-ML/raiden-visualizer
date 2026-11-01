@@ -302,7 +302,9 @@ def evict(headroom_gb: float = 0.0, force: bool = False) -> None:
         fresh = now - _evict_state["last_walk"] < EVICT_WALK_INTERVAL_S
         if not force and fresh and _evict_state["usage"] <= limit:
             return
-    files = [p for p in config.CACHE_DIR.glob("*") if p.is_file() and ".tmp" not in p.name]
+    # preview assets (pv_* posters / 5 s clips, previews_* blobs) are tiny and feed every card: never evicted
+    files = [p for p in config.CACHE_DIR.glob("*") if p.is_file() and ".tmp" not in p.name
+             and not p.name.startswith(("pv_", "previews_"))]
     sizes = {}
     for p in files:
         try:
