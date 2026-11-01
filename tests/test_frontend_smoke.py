@@ -153,6 +153,30 @@ def test_episode_view_renders_camera_grid_and_generic_names(browser, site):
     page.close()
 
 
+def test_episode_switch_keeps_the_old_content_until_the_new_one_lands(browser, site):
+    # no loading screen: the header takes the new episode's name at once and the previous cameras stay in the DOM
+    # while the (slow) detail request is in flight; the slim busy bar is the only indicator
+    page = _open(browser, site, "#demo/kitchen_put_spoon_seg48/chunk_000__episode_000001")
+    page.wait_for_selector("#camera-grid .cam-tile")
+    old_tiles = page.evaluate("[...document.querySelectorAll('#camera-grid .cam-tile')].map(t => t.outerHTML.length)")
+
+    held = []   # the detail request is held open until we have looked at the screen (a sleep would block the dispatcher)
+    page.route("**/episodes/chunk_000__episode_000003", lambda route: held.append(route))
+    page.evaluate("() => { selectEpisode('chunk_000__episode_000003'); }")   # not awaited: the request is held
+    page.wait_for_timeout(300)
+    assert page.locator("#ep-instruction").inner_text() == "episode 3"          # never "Loading…"
+    assert page.evaluate("document.documentElement.classList.contains('busy')")   # the bar is lit while in flight
+    assert page.locator("#camera-grid .cam-tile").count() == len(old_tiles)       # previous episode still on screen
+    assert page.locator("#lang-card .lang-row, #lang-list > *").count() == 0
+    page.screenshot(path=str(SHOTS / "rv_switch_t0.png"))
+    held[0].fulfill(status=200, content_type="application/json", body=json.dumps(ANNOTATED))
+    page.wait_for_selector("#lang-list > *")
+    assert "put the spoon" in page.locator("#ep-instruction").inner_text()
+    assert not page.evaluate("document.documentElement.classList.contains('busy')")
+    page.screenshot(path=str(SHOTS / "rv_switch_t1.png"))
+    page.close()
+
+
 def test_language_timeline_syncs_with_the_clock(browser, site):
     page = _open(browser, site, "#demo/kitchen_put_spoon_seg48/chunk_000__episode_000001")
     page.wait_for_selector("#camera-grid .cam-tile")

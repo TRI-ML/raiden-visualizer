@@ -41,7 +41,7 @@ function applyTheme(t) {
   try { localStorage.setItem("rv_theme", t); } catch (_) {}
   document.querySelectorAll("#theme-seg button").forEach((b) => b.classList.toggle("active", b.dataset.theme === t));
   // canvases paint their colours at draw time: redraw whatever is on screen
-  if (state.catalog && !state.source) drawCatalogBars(state.catMetric || "episodes");
+  if (state.catalog && !state.source) drawCatalogBars(state.catMetric || "episodes", false);   // resize: no animation
   if (state.contrib && !state.source) drawContrib(state.contribMetric || "bytes");
   if (state.teachers && !state.source) drawTeachers(state.teacherMetric || "episodes");
   if (state.source && !state.episode && state.overviewEps) { drawHistogram(state.overviewEps); drawScatter(state.overviewEps, state.overviewColors || {}); }
@@ -75,8 +75,13 @@ function initEnv() {
   };
 }
 
+// Requests in flight light the slim bar at the top of the main pane (html.busy); nothing else animates while loading.
+let _inflight = 0;
 async function api(path) {
-  const r = await fetch(path);
+  _inflight++; document.documentElement.classList.add("busy");
+  let r;
+  try { r = await fetch(path); }
+  finally { if (--_inflight === 0) document.documentElement.classList.remove("busy"); }
   if (!r.ok) {
     let msg = `${r.status}`;
     try { msg = (await r.json()).error || (await r.json()).detail || msg; } catch (_) {}
@@ -214,7 +219,7 @@ async function selectSource(sid, autoTask = null, autoEpisode = null) {
   clearTimeout(state._catTimer);   // stop catalog polling once we enter a source
   clearTimeout(state._taskTeacherTimer);
   document.body.classList.remove("catalog-mode");  // reveal the episode-browser sidebar
-  $("#catalog-view").classList.add("hidden");
+  // the catalog stays on screen until showOverview() swaps it for the ready overview (no blank main pane)
   $("#source-select").value = sid;
   try {
     const { tasks } = await api(`${apiBase()}/tasks`);
@@ -567,7 +572,8 @@ async function renderCatalog() {
 
   // Stash the cards for the comparison bar chart (redrawn on metric toggle / resize).
   state.catalog = data.datasets;
-  drawCatalogBars(state.catMetric || "episodes");
+  drawCatalogBars(state.catMetric || "episodes", !state._barsDrawn);   // grow once per page load, not on every poll
+  state._barsDrawn = true;
   if (ENV === "dev") {   // the activity panels belong to the dev feature set (see initEnv)
     loadContrib();   // upload-activity calendar (independent /api/contrib scan)
     loadTeachers();  // raiden teleop-per-day-by-teacher bars (/api/raiden_teachers)
@@ -589,10 +595,14 @@ const CAT_METRICS = {
   tasks: { key: "num_tasks", label: "tasks", fmt: (v) => String(v) },
 };
 
-function drawCatalogBars(metric) {
+// The one deliberate animation on the page (user, 2026-11-01): on first render and on a metric toggle the bars grow
+// from zero (ease-out, ~550 ms) and the value labels fade in at the end. Resize redraws pass animate=false; reduced
+// motion and hidden tabs paint the final frame at once.
+function drawCatalogBars(metric, animate = true) {
   state.catMetric = metric;
   const canvas = $("#cat-bar-canvas");
   if (!canvas || !state.catalog) return;
+  cancelAnimationFrame(state._barAnim);
   const m = CAT_METRICS[metric] || CAT_METRICS.episodes;
   // Rows for datasets that have this metric (skip still-building/absent values).
   const rows = state.catalog
@@ -626,21 +636,35 @@ function drawCatalogBars(metric) {
     ctx.fillStyle = cssVar("--text-faint"); ctx.textAlign = "center";
     ctx.fillText(m.fmt(v), x, H - padBot + 18);
   });
-  // bars + labels
-  rows.forEach((r, i) => {
-    const y = padTop + i * rowH;
-    const bh = rowH - 10;
-    const bw = Math.max(2, plotW * (r.v / tickMax));
-    // dataset label (right-aligned, truncated by clip)
+  // bars + labels; p in [0, 1] is the animation progress (bar length), labels fade in over the last 30 %
+  const paint = (p) => {
+    ctx.clearRect(x0 - 1, 0, W - x0 + 1, H - padBot);   // bars + values only; axis, ticks and names stay
+    rows.forEach((r, i) => {
+      const y = padTop + i * rowH;
+      const bh = rowH - 10;
+      const bw = Math.max(2, plotW * (r.v / tickMax) * p);
+      ctx.fillStyle = cssVar("--accent");
+      roundRect(ctx, x0, y + 2, bw, bh, 3); ctx.fill();
+      ctx.globalAlpha = Math.max(0, (p - 0.7) / 0.3);
+      ctx.fillStyle = cssVar("--text-dim"); ctx.font = "11px 'JetBrains Mono', monospace"; ctx.textAlign = "left";
+      ctx.fillText(m.fmt(r.v), x0 + bw + 6, y + bh / 2 + 4);
+      ctx.globalAlpha = 1;
+    });
+  };
+  rows.forEach((r, i) => {   // dataset names (right-aligned, truncated) are static
+    const y = padTop + i * rowH, bh = rowH - 10;
     ctx.fillStyle = cssVar("--text"); ctx.font = "12px 'Inter', sans-serif"; ctx.textAlign = "right";
     ctx.fillText(r.label.length > 24 ? r.label.slice(0, 23) + "…" : r.label, labelW - 12, y + bh / 2 + 4);
-    // bar
-    ctx.fillStyle = cssVar("--accent");
-    roundRect(ctx, x0, y + 2, bw, bh, 3); ctx.fill();
-    // value at bar end
-    ctx.fillStyle = cssVar("--text-dim"); ctx.font = "11px 'JetBrains Mono', monospace"; ctx.textAlign = "left";
-    ctx.fillText(m.fmt(r.v), x0 + bw + 6, y + bh / 2 + 4);
   });
+  const still = !animate || document.hidden || matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (still) { paint(1); return; }
+  const t0 = performance.now(), dur = 550;
+  const frame = (now) => {
+    const t = Math.min(1, (now - t0) / dur);
+    paint(1 - Math.pow(1 - t, 3));   // ease-out cubic
+    if (t < 1) state._barAnim = requestAnimationFrame(frame);
+  };
+  state._barAnim = requestAnimationFrame(frame);
 }
 
 function roundRect(ctx, x, y, w, h, r) {
@@ -944,14 +968,15 @@ function drawTeachers(metric) {
 }
 
 async function renderOverview() {
+  // header first, from the sources list we already hold; the previous dataset's cards stay until the data lands
+  const src = (state.sources || []).find((x) => x.id === state.source);
+  $("#ov-title").textContent = src ? src.label : state.source;   // the dataset name is the page title
+  const chip = $("#ov-origin");
+  chip.textContent = ORIGIN_LABEL[src && src.origin] || "";
+  chip.hidden = !chip.textContent;
+  $("#ov-embod").innerHTML = embodimentPills(src && src.embodiments);   // the derived list lands with the stats
   try {
     const ov = await api(`${apiBase()}/overview`);
-    const src = (state.sources || []).find((x) => x.id === state.source);
-    $("#ov-title").textContent = src ? src.label : state.source;   // the dataset name is the page title
-    const chip = $("#ov-origin");
-    chip.textContent = ORIGIN_LABEL[src && src.origin] || "";
-    chip.hidden = !chip.textContent;
-    $("#ov-embod").innerHTML = embodimentPills(src && src.embodiments);   // the derived list lands with the stats
     // the raw-data path lives in the sidebar foot (user, 2026-10-31); the overview Source card stays hidden
     $("#s3-root").textContent = `s3://${ov.bucket}/${ov.prefix}`;
     $("#s3-root").title = `s3://${ov.bucket}/${ov.prefix} · region ${ov.region}`;
@@ -1910,19 +1935,27 @@ async function selectEpisode(ep) {
   updateHash();
   renderEpisodeList();
   updateEpisodeNav();
-  $("#overview-view").classList.add("hidden");
   setPreviewPlaying(false);
-  $("#episode-view").classList.remove("hidden");
-  $("#ep-instruction").textContent = "Loading…";
+  // No loading screen (user, 2026-11-01): the header takes the episode's name right away and whatever is on screen
+  // (the overview, or the previous episode's cameras and plots, paused) stays until the new detail renders.
+  const firstOpen = $("#episode-view").classList.contains("hidden");
+  if (!firstOpen) {
+    $("#ep-instruction").textContent = parseEpisodeName(ep).name;
+    $("#ep-name").textContent = ep;
+  }
   try {
     const detail = await api(
       `${apiBase()}/tasks/${encodeURIComponent(state.task)}/episodes/${encodeURIComponent(ep)}`
     );
+    if (state.episode !== ep) return;   // the user moved on while this one loaded
     state.detail = detail;
+    $("#catalog-view").classList.add("hidden");   // a deep link lands here straight from the catalog
+    $("#overview-view").classList.add("hidden");
+    $("#episode-view").classList.remove("hidden");
     renderDetail(detail);
   } catch (e) {
     toast("Failed to load episode: " + e.message);
-    $("#ep-instruction").textContent = "Error loading episode";
+    if (!firstOpen) $("#ep-instruction").textContent = "Error loading episode";
   }
 }
 
