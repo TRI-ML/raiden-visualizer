@@ -290,7 +290,8 @@ select option { background: var(--bg-elev); color: var(--text); }
 .chart-legend i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
 @media (max-width: 900px) { .ov-charts { grid-template-columns: 1fr; } }
 
-.ov-task-list { padding: 6px 8px 10px; }
+/* ~8 rows visible, the rest scroll inside the card (user, 2026-10-31) */
+.ov-task-list { padding: 6px 8px 10px; max-height: 520px; overflow-y: auto; }
 .ov-task-list .empty-note { padding: 10px 12px; }
 /* fixed columns so every row lines up: preview | name | bar | episodes | hours (user, 2026-10-31) */
 .ov-task-row {
