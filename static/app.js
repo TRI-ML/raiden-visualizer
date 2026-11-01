@@ -537,10 +537,11 @@ async function renderCatalog() {
         <div><b>${c.num_tasks ?? "—"}</b><span>tasks</span></div>
         <div${hoursTitle}><b>${hours}</b><span>duration</span></div>
       </div>
-      <div class="cat-row">${building
-        ? '<span class="cat-badge building">⟳ computing…</span>'
-        : failed ? failBadge(c.error) : annBadge(c.annotations)}</div>
-      `;   // camera list + s3 path hidden on the card (user, 2026-10-31); `cams` kept for the title below
+      `;   // annotation state lives in the pills row now (user, 2026-10-31: no extra line); only noteworthy states show
+    const annPill = building ? '<span class="cat-fmt cat-ann building">computing…</span>'
+      : failed ? failBadge(c.error)
+      : c.annotations === "yes" ? '<span class="cat-fmt cat-ann ann-yes">Annotated</span>' : "";
+    if (annPill) card.querySelector(".cat-pills").insertAdjacentHTML("beforeend", annPill);   // camera list + s3 path hidden on the card (user, 2026-10-31); `cams` kept for the title below
     card.title = `${cams}${c.bucket ? ` · s3://${c.bucket}/${c.prefix ?? ""}` : ""}`;
     // Preview chosen at build time (stored on the card): poster now, clip on hover.
     const head = card.querySelector(".cat-card-head");
