@@ -24,50 +24,50 @@ AWS_REGION = os.environ.get("RAIDEN_AWS_REGION", "us-west-2")
 SOURCES = [
     # The raiden teleop prefix is split in two sources (user, 2026-10-31): "Raiden" = the legacy corpus, "Raiden 2.0" =
     # the harvest data collected through the yam-eval console against Task Hub tasks (sources.is_harvest_task).
-    {"id": "raiden", "origin": "tri", "embodiments": ["YAM"], "label": "Raiden", "kind": "raiden", "bucket": S3_BUCKET, "prefix": S3_PREFIX,
+    {"id": "raiden", "arms": 2, "origin": "tri", "embodiments": ["YAM"], "label": "Raiden", "kind": "raiden", "bucket": S3_BUCKET, "prefix": S3_PREFIX,
      "split": "legacy"},
-    {"id": "raiden2", "origin": "tri", "embodiments": ["YAM"], "label": "Raiden 2.0", "kind": "raiden", "bucket": S3_BUCKET, "prefix": S3_PREFIX,
+    {"id": "raiden2", "arms": 2, "origin": "tri", "embodiments": ["YAM"], "label": "Raiden 2.0", "kind": "raiden", "bucket": S3_BUCKET, "prefix": S3_PREFIX,
      "split": "harvest"},
-    {"id": "yam", "origin": "open", "embodiments": ["YAM"], "label": "XDOF", "kind": "yam", "bucket": S3_BUCKET,
+    {"id": "yam", "arms": 2, "origin": "open", "embodiments": ["YAM"], "label": "XDOF", "kind": "yam", "bucket": S3_BUCKET,
      "prefix": "yam_raw/2026_03_30_zed", "mcap_name": "output.mcap"},
     # YAM teleop recorded on the russet station, uploaded from ~/data/raw. Same
     # raiden .svo2 layout (metadata.json + cameras/*.svo2 + robot_data.npz), so it
     # uses the raiden adapter.
-    {"id": "yam_russet", "origin": "tri", "embodiments": ["YAM"], "label": "YAM (russet)", "kind": "raiden", "bucket": S3_BUCKET, "prefix": "yam_datasets/raw"},
+    {"id": "yam_russet", "arms": 2, "origin": "tri", "embodiments": ["YAM"], "label": "YAM (russet)", "kind": "raiden", "bucket": S3_BUCKET, "prefix": "yam_datasets/raw"},
     # rfm_rl policy ROLLOUTS recorded on russet (rfm_rl_rollout). Identical
     # raiden .svo2 layout (metadata.json + cameras/*.svo2 + robot_data.npz);
     # metadata.json carries an extra rollout_info block that the raiden adapter
     # ignores. See raiden-rfm-flow-policy work.
     # Raiden Rollouts (raiden_datasets/rollouts, 2 episodes) removed from the viewer (user, 2026-10-31); keep for reference
-    # {"id": "rollouts", "origin": "tri", "embodiments": ["YAM"], "label": "Raiden Rollouts", "kind": "raiden", "bucket": S3_BUCKET, "prefix": "raiden_datasets/rollouts"},
+    # {"id": "rollouts", "arms": 2, "origin": "tri", "embodiments": ["YAM"], "label": "Raiden Rollouts", "kind": "raiden", "bucket": S3_BUCKET, "prefix": "raiden_datasets/rollouts"},
     # yam-eval policy rollouts (recorded by the yam-robot vibe daemon, uploaded by the eval console): the raiden
     # layout nested under <run>_<step>/<task>/rollout_NNNN (Vibe) and <formal_id>/<run>_<step>/<task>/rollout_NNNN
     # (ranked evals, yam-eval PR #368); `depth` = dir levels above <task>. metadata.json carries rollout_info,
     # verdict and the score block (model label, prompt, judge source, station).
-    {"id": "policy_rollouts", "origin": "tri", "embodiments": ["YAM"], "label": "Policy rollouts", "kind": "raiden_rollouts",
+    {"id": "policy_rollouts", "arms": 2, "origin": "tri", "embodiments": ["YAM"], "label": "Policy rollouts", "kind": "raiden_rollouts",
      "bucket": S3_BUCKET, "prefix": "tri-yam/policy_rollouts", "depth": 1},
     # Eval rollouts: the ranked-eval tree plus the rollouts of the eval SESSIONS (eval_sessions/<station>/<eval_id>/
     # eval_session.json), whose recordings sit in the Vibe tree and are found via recording_s3 / the vibe History
     # record (sources.RolloutSource).
-    {"id": "eval_rollouts", "origin": "tri", "embodiments": ["YAM"], "label": "Eval rollouts", "kind": "raiden_rollouts",
+    {"id": "eval_rollouts", "arms": 2, "origin": "tri", "embodiments": ["YAM"], "label": "Eval rollouts", "kind": "raiden_rollouts",
      "bucket": S3_BUCKET, "prefix": "tri-yam/eval_rollouts", "depth": 2,
      "sessions_prefix": "tri-yam/eval_sessions", "history_prefix": "tri-yam/vibe_history"},
     # ABC-130k: the full open-source YAM dataset (xdof/Amazon). Same Foxglove-MCAP
     # format as the yam source but with episode.mcap files, newer topic names
     # (/<cam>, -state) and H.265 video — all handled by the yam adapter/decoder.
-    {"id": "abc130k", "origin": "open", "embodiments": ["YAM"], "annotation_sidecar": True,
+    {"id": "abc130k", "arms": 2, "origin": "open", "embodiments": ["YAM"], "annotation_sidecar": True,
      "argus": {"tables": "geyan/argus/argus_labels/abc130k/abc_v1/tables_v3ar", "repo_prefix": "abc130k_t"}, "label": "ABC-130k (train)", "kind": "yam", "bucket": S3_BUCKET,
      "prefix": "vla_foundry_datasets_test/raw_datasets_bot/abc-130k/data/train", "mcap_name": "episode.mcap"},
     # The public yam_public/ABC-130k mirror carries a val split (same episode.mcap
     # layout + content as the train mirror above, 189 tasks) that our train-only
     # source doesn't expose. Same yam adapter.
-    {"id": "abc130k_val", "origin": "open", "embodiments": ["YAM"], "annotation_sidecar": True,
+    {"id": "abc130k_val", "arms": 2, "origin": "open", "embodiments": ["YAM"], "annotation_sidecar": True,
      "argus": {"tables": "geyan/argus/argus_labels/abc130k/abc_val_v1/tables_v3ar", "repo_prefix": "abc130k_val_t"}, "label": "ABC-130k (val)", "kind": "yam", "bucket": S3_BUCKET,
      "prefix": "yam_public/ABC-130k/data/val", "mcap_name": "episode.mcap"},
     # The xdof VENDOR bucket copy of the zed collection — carries inline
     # /subtask-annotation labels (which the tri-ml mirror lacks). Readable only via
     # the manip-cluster SSO profile (see BUCKET_PROFILES).
-    {"id": "xdof_zed", "origin": "purchased", "embodiments": ["YAM"], "label": "YAM (xdof zed)", "kind": "yam", "bucket": "xdof-yam-data",
+    {"id": "xdof_zed", "arms": 2, "origin": "purchased", "embodiments": ["YAM"], "label": "YAM (xdof zed)", "kind": "yam", "bucket": "xdof-yam-data",
      "prefix": "2026_03_30_zed", "mcap_name": "output.mcap", "requires_access": True,
      # Per-episode sidecar JSON (camera intrinsics/distortion + episode fields) that
      # ships alongside the MCAPs under this prefix, keyed by the episode uuid. The
@@ -78,33 +78,33 @@ SOURCES = [
     # by the lerobot adapter. Each task's episode instructions + subtask labels come
     # from the parquet, so no sidecar is needed. (Formerly at yam_public/bimanual-dataset
     # with id yam_bimanual; renamed + relocated to yam_public/WorldEngine 2026-07.)
-    {"id": "worldengine", "origin": "open", "label": "WorldEngine", "kind": "lerobot",
+    {"id": "worldengine", "arms": 2, "origin": "open", "label": "WorldEngine", "kind": "lerobot",
      "bucket": S3_BUCKET, "prefix": "yam_public/WorldEngine"},
     # MolmoAct2 bimanual YAM: a SINGLE LeRobot v3.0 dataset at the prefix root
     # (meta/data/videos directly under it, no per-task subfolders), ~32k episodes
     # across 34 internal tasks. Handled by the single-root lerobot adapter, which
     # groups episodes by their dataset task label. 3 cams (left/right/top), AV1.
-    {"id": "molmoact2_yam", "origin": "open", "embodiments": ["YAM"], "label": "MolmoAct2 Bimanual YAM", "kind": "lerobot_single",
+    {"id": "molmoact2_yam", "arms": 2, "origin": "open", "embodiments": ["YAM"], "label": "MolmoAct2 Bimanual YAM", "kind": "lerobot_single",
      "argus": {"tables": "geyan/argus/argus_labels/molmo/molmo_v1/tables", "repo": "molmo_yam_v3", "join": "index"},
      "bucket": S3_BUCKET, "prefix": "yam_public/MolmoAct2-BimanualYAM"},
     # Zheyuan's Argus mirror also holds LeRobot v3 copies of public corpora (geyan/argus/data/<pool>/<repo>/{meta,data,
     # videos}); each repo is a "task" folder for the lerobot adapter. Argus label repos are named after the task folder.
     # RealOmni (UMI bimanual, 3 sessions: 65.9k + 13k + 589k episodes, 2 wrist cams, 30 Hz).
-    {"id": "realomni", "origin": "open", "label": "RealOmni", "kind": "lerobot",
+    {"id": "realomni", "arms": 2, "origin": "open", "label": "RealOmni", "kind": "lerobot",
      "argus": {"tables": "geyan/argus/argus_labels/realomin/realomin_v1/tables", "repo": "{task}", "join": "index"},
      "bucket": S3_BUCKET, "prefix": "geyan/argus/data/realomin_v3ar"},
     # DROID (Franka Panda, 15 Hz, 3 cams): droid_full 72k episodes + droid_full_lowres 18.9k; Argus labels exist for the
     # low-res copy (droid_lowres_v1) only.
-    {"id": "droid", "origin": "open", "label": "DROID", "kind": "lerobot",
+    {"id": "droid", "arms": 1, "origin": "open", "label": "DROID", "kind": "lerobot",
      "argus": {"tables": "geyan/argus/argus_labels/droid/droid_lowres_v1/tables", "repo": "{task}", "join": "index"},
      "bucket": S3_BUCKET, "prefix": "geyan/argus/data/droid_v3ar"},
     # AgiBot World: 2026 release (G2, 235 task repos) and the beta (A2D, 205 task repos); head + two hand cams, 30 Hz.
-    {"id": "agibot26", "origin": "open", "label": "AgiBot World 2026", "kind": "lerobot",
+    {"id": "agibot26", "arms": 2, "origin": "open", "label": "AgiBot World 2026", "kind": "lerobot",
      "bucket": S3_BUCKET, "prefix": "geyan/argus/data/agibot26_v3ar"},
-    {"id": "agibot_beta", "origin": "open", "label": "AgiBot World (beta)", "kind": "lerobot",
+    {"id": "agibot_beta", "arms": 2, "origin": "open", "label": "AgiBot World (beta)", "kind": "lerobot",
      "bucket": S3_BUCKET, "prefix": "geyan/argus/data/agibot_beta_v3ar"},
     # HABIT: dual Franka Panda, 10.5k episodes / 63 tasks in one repo, 10 Hz, front + two wrist cams.
-    {"id": "habit", "origin": "open", "label": "HABIT", "kind": "lerobot",
+    {"id": "habit", "arms": 2, "origin": "open", "label": "HABIT", "kind": "lerobot",
      "bucket": S3_BUCKET, "prefix": "geyan/argus/data/habit_v3ar"},
     # Isaac sim datasets from raiden_sim2real (scripted experts on the YAM twin). Each
     # dataset folder s3://tri-yam/sim_datasets/<name>/ holds the source h5 + dataset
@@ -114,7 +114,7 @@ SOURCES = [
     # ONE EPISODE PER VIDEO FILE — so the adapter's stream-copy fast path applies and
     # no episode is ever transcoded. Folders without a lerobot/ subdir (part files that
     # keep only their card) are skipped by list_tasks.
-    {"id": "yam_sim", "prod": False, "origin": "tri", "embodiments": ["YAM"], "label": "YAM Sim (Isaac twin)", "kind": "lerobot",
+    {"id": "yam_sim", "arms": 2, "prod": False, "origin": "tri", "embodiments": ["YAM"], "label": "YAM Sim (Isaac twin)", "kind": "lerobot",
      "bucket": "tri-yam", "prefix": "sim_datasets", "subdir": "lerobot"},
 ]
 
@@ -130,7 +130,7 @@ WEBBED_DATASETS = [
     "kitchen_full_no_put_plate", "kitchen_rack_combo", "kitchen_put_spoon", "stack_cup_neural_light",
     "clean_up_table_V2_neural_light_1245", "organize_the_table_fork_spoon_merged",
 ]
-SOURCES.append({"id": "webbed", "origin": "open", "embodiments": ["YAM"], "label": "UW YAM", "kind": "webbed", "bucket": S3_BUCKET,
+SOURCES.append({"id": "webbed", "arms": 2, "origin": "open", "embodiments": ["YAM"], "label": "UW YAM", "kind": "webbed", "bucket": S3_BUCKET,
                 "prefix": "geyan/anydata/cv_webbed/videos", "split": "split_all__IKDLA_48",
                 "datasets": [f"{n}_seg48" for n in WEBBED_DATASETS]})
 
