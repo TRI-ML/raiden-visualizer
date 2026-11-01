@@ -2053,11 +2053,26 @@ function buildCameraGrid(cameras) {
     grid.appendChild(makeCamTile(null, "No cameras recorded for this episode."));
     return;
   }
-  grid.style.gridTemplateColumns = `repeat(${Math.min(cameras.length, 4)}, minmax(0, 1fr))`;   // one row, up to 4 across
+  // Layout (user, 2026-11-01: "2x3 for UW, be smart"): RGB cameras form the top row and each camera's depth stream
+  // sits directly beneath it (same column), so webbed's 3 rgb + 3 depth is a 2x3. Without depth pairs: one row up to
+  // four across, otherwise two balanced rows.
+  const isDepth = (c) => /_depth$/.test(c.name);
+  const rgb = cameras.filter((c) => !isDepth(c));
+  const depth = cameras.filter(isDepth);
+  const paired = depth.length && depth.every((d) => rgb.some((c) => c.name === d.name.replace(/_depth$/, "")));
+  let ordered = cameras, cols;
+  if (paired) {
+    const depthOf = (c) => depth.find((d) => d.name === `${c.name}_depth`);
+    ordered = [...rgb, ...rgb.map(depthOf).filter(Boolean)];
+    cols = rgb.length;
+  } else {
+    cols = cameras.length <= 4 ? cameras.length : Math.ceil(cameras.length / 2);
+  }
+  grid.style.gridTemplateColumns = `repeat(${cols}, minmax(0, 1fr))`;
 
   // One tile per camera, in a stable order. Stub cameras (no video) render a
   // graceful placeholder rather than a broken player.
-  cameras.forEach((c) => {
+  ordered.forEach((c) => {
     if (c.has_video) {
       grid.appendChild(makeVideoTile(c));
     } else {
