@@ -87,6 +87,25 @@ SOURCES = [
     {"id": "molmoact2_yam", "origin": "open", "embodiments": ["YAM"], "label": "MolmoAct2 Bimanual YAM", "kind": "lerobot_single",
      "argus": {"tables": "geyan/argus/argus_labels/molmo/molmo_v1/tables", "repo": "molmo_yam_v3", "join": "index"},
      "bucket": S3_BUCKET, "prefix": "yam_public/MolmoAct2-BimanualYAM"},
+    # Zheyuan's Argus mirror also holds LeRobot v3 copies of public corpora (geyan/argus/data/<pool>/<repo>/{meta,data,
+    # videos}); each repo is a "task" folder for the lerobot adapter. Argus label repos are named after the task folder.
+    # RealOmni (UMI bimanual, 3 sessions: 65.9k + 13k + 589k episodes, 2 wrist cams, 30 Hz).
+    {"id": "realomni", "origin": "open", "label": "RealOmni", "kind": "lerobot",
+     "argus": {"tables": "geyan/argus/argus_labels/realomin/realomin_v1/tables", "repo": "{task}", "join": "index"},
+     "bucket": S3_BUCKET, "prefix": "geyan/argus/data/realomin_v3ar"},
+    # DROID (Franka Panda, 15 Hz, 3 cams): droid_full 72k episodes + droid_full_lowres 18.9k; Argus labels exist for the
+    # low-res copy (droid_lowres_v1) only.
+    {"id": "droid", "origin": "open", "label": "DROID", "kind": "lerobot",
+     "argus": {"tables": "geyan/argus/argus_labels/droid/droid_lowres_v1/tables", "repo": "{task}", "join": "index"},
+     "bucket": S3_BUCKET, "prefix": "geyan/argus/data/droid_v3ar"},
+    # AgiBot World: 2026 release (G2, 235 task repos) and the beta (A2D, 205 task repos); head + two hand cams, 30 Hz.
+    {"id": "agibot26", "origin": "open", "label": "AgiBot World 2026", "kind": "lerobot",
+     "bucket": S3_BUCKET, "prefix": "geyan/argus/data/agibot26_v3ar"},
+    {"id": "agibot_beta", "origin": "open", "label": "AgiBot World (beta)", "kind": "lerobot",
+     "bucket": S3_BUCKET, "prefix": "geyan/argus/data/agibot_beta_v3ar"},
+    # HABIT: dual Franka Panda, 10.5k episodes / 63 tasks in one repo, 10 Hz, front + two wrist cams.
+    {"id": "habit", "origin": "open", "label": "HABIT", "kind": "lerobot",
+     "bucket": S3_BUCKET, "prefix": "geyan/argus/data/habit_v3ar"},
     # Isaac sim datasets from raiden_sim2real (scripted experts on the YAM twin). Each
     # dataset folder s3://tri-yam/sim_datasets/<name>/ holds the source h5 + dataset
     # card, and a LeRobot v3.0 copy under its `lerobot/` subdir (native 128x128, 30 Hz,
