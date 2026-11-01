@@ -234,3 +234,93 @@ def joint_legend(sid: str, robot: dict | None) -> dict | None:
         return None
     sig = {k: axes(sid, k, int(v.get("dims") or 0), v.get("names")) for k, v in robot["signals"].items()}
     return {**convention(sid), "signals": sig}
+
+
+# ---- grouping for the trajectory plots ---------------------------------------------------------------------
+
+ROWS = ("position", "rotation", "gripper", "joints", "other")
+
+
+def _kind(a: dict) -> str:
+    n, m = a["name"].lower(), a["meaning"].lower()
+    if "tcp_" in n or "tcp position" in m:
+        return "position"
+    if "rot6d" in n or "rot6d" in m:
+        return "rotation"
+    if "grip" in n or "fraction_open" in n or "gripper" in m:
+        return "gripper"
+    if "joint" in n or "revolute" in m:
+        return "joints"
+    return "other"
+
+
+def groups(sid: str, key: str, dims: int, names: list | None = None) -> list[dict]:
+    """Split one plotted signal into (arm × quantity) panels: [{arm, kind, idx, rot}] in index order.
+    `rot` says how a rot6d block encodes R ("rows" | "columns"), read off the axis meaning."""
+    ax = axes(sid, key, dims, names)
+    out: list[dict] = []
+    for a in ax:
+        nm = a["name"].lower()
+        arm = "left" if nm.startswith("left") else "right" if nm.startswith("right") else _arm(key)
+        kind = _kind(a)
+        g = out[-1] if out and out[-1]["arm"] == arm and out[-1]["kind"] == kind else None
+        if g is None:
+            g = {"arm": arm, "kind": kind, "idx": []}
+            if kind == "rotation":
+                g["rot"] = "columns" if "COLUMNS" in a["meaning"] else "rows"
+            out.append(g)
+        g["idx"].append(a["i"])
+    return out
+
+
+def rot6d_to_matrix(r6, rows: bool = True) -> np.ndarray:
+    """(N, 6) → (N, 3, 3). The 6 numbers are the first two rows (UMI/Drake row convention) or the first two
+    columns of R; Gram–Schmidt gives the third."""
+    r6 = np.asarray(r6, dtype=np.float64).reshape(-1, 6)
+    a, b = r6[:, 0:3], r6[:, 3:6]
+    a = a / np.maximum(np.linalg.norm(a, axis=1, keepdims=True), 1e-9)
+    b = b - np.sum(a * b, axis=1, keepdims=True) * a
+    b = b / np.maximum(np.linalg.norm(b, axis=1, keepdims=True), 1e-9)
+    c = np.cross(a, b)
+    R = np.stack([a, b, c], axis=1)          # rows
+    return R if rows else np.transpose(R, (0, 2, 1))
+
+
+def matrix_to_euler_xyz_deg(R: np.ndarray) -> np.ndarray:
+    """Intrinsic x-y-z (roll, pitch, yaw) in degrees from (N, 3, 3): R = Rx(roll) · Ry(pitch) · Rz(yaw)."""
+    pitch = np.arcsin(np.clip(R[:, 0, 2], -1.0, 1.0))
+    roll = np.arctan2(-R[:, 1, 2], R[:, 2, 2])
+    yaw = np.arctan2(-R[:, 0, 1], R[:, 0, 0])
+    return np.degrees(np.stack([roll, pitch, yaw], axis=1))
+
+
+def rot6d_to_euler_deg(r6, rows: bool = True) -> np.ndarray:
+    return matrix_to_euler_xyz_deg(rot6d_to_matrix(r6, rows))
+
+
+def layout(sid: str, robot: dict) -> list[dict] | None:
+    """Panels for the trajectory grid, adding derived roll/pitch/yaw signals for every rot6d block:
+    [{arm, row, key, idx, raw_key, raw_idx, label}] ordered position → rotation → gripper → joints.
+    Returns None when nothing splits (a dataset with a single undocumented vector)."""
+    panels: list[dict] = []
+    for key, sig in list(robot.get("signals", {}).items()):
+        if key.endswith("__rpy"):
+            continue
+        gs = groups(sid, key, int(sig.get("dims") or 0), sig.get("names"))
+        if len(gs) <= 1 and gs and gs[0]["kind"] == "other":
+            return None if len(robot["signals"]) == 1 else panels or None
+        for g in gs:
+            panel = {"arm": g["arm"], "row": g["kind"], "key": key, "idx": g["idx"],
+                     "label": f"{g['arm']} {g['kind']}".strip()}
+            if g["kind"] == "rotation" and len(g["idx"]) == 6:
+                series = np.asarray(sig["series"], dtype=np.float64)[:, g["idx"]]
+                eul = rot6d_to_euler_deg(series, rows=g.get("rot") != "columns")
+                dk = f"{key}__{g['arm'] or 'ee'}__rpy"
+                robot["signals"][dk] = {"dims": 3, "series": np.round(eul, 3).tolist(), "min": round(float(eul.min()), 3),
+                                        "max": round(float(eul.max()), 3), "names": ["roll", "pitch", "yaw"], "derived": True}
+                panel.update({"raw_key": key, "raw_idx": g["idx"], "key": dk, "idx": [0, 1, 2],
+                              "label": f"{g['arm']} rotation (roll / pitch / yaw, intrinsic xyz, deg)".strip()})
+            panels.append(panel)
+    order = {r: i for i, r in enumerate(ROWS)}
+    panels.sort(key=lambda p: (order[p["row"]], {"left": 0, "": 1, "right": 2}[p["arm"]], p["key"]))
+    return panels or None

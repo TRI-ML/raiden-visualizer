@@ -39,10 +39,18 @@ _ROBOT = {"keys": ["follower_l_joint_pos", "follower_l_gripper_pos"], "time": [0
                       "follower_l_gripper_pos": {"dims": 1, "series": [[0.0], [0.5], [1.0]], "min": 0.0, "max": 1.0}},
           "summary": {"num_steps": 3, "duration_s": 2.0, "hz": 1.5}}
 _ROBOT["joint_legend"] = _emb.joint_legend("raiden", _ROBOT)
+_ROBOT["joint_legend"]["layout"] = _emb.layout("raiden", _ROBOT)
 DETAIL["robot"] = _ROBOT
 CONVENTION = _emb.convention("raiden")
+# episode 3: a bimanual eef32 (UW YAM) trajectory → the two-column arm grid
+_EEF = {"keys": ["state"], "time": [0.0, 1.0, 2.0],
+        "signals": {"state": {"dims": 32, "series": [[0.1 * i] * 3 + [1, 0, 0, 0, 1, 0] + [0.2 * i] * 3 + [1, 0, 0, 0, 1, 0] + [0.5, 0.5] + [0.01 * i] * 12 for i in range(3)],
+                              "min": 0.0, "max": 1.0}},
+        "summary": {"num_steps": 3, "duration_s": 2.0, "hz": 1.5}}
+_EEF["joint_legend"] = _emb.joint_legend("webbed", _EEF)
+_EEF["joint_legend"]["layout"] = _emb.layout("webbed", _EEF)
 # episode 3 carries subtask (Argus) labels: {t, text} transitions, as the yam / lerobot adapters emit them
-ANNOTATED = {**DETAIL, "episode": "chunk_000__episode_000003",
+ANNOTATED = {**DETAIL, "episode": "chunk_000__episode_000003", "robot": _EEF,
              "annotations": [{"t": 0.5, "text": "reach for the spoon"}, {"t": 6.0, "text": "grasp the spoon"},
                              {"t": 11.0, "text": "place it in the drawer"}]}
 
@@ -262,4 +270,24 @@ def test_axis_legend_popover_and_convention_card(browser, site):
     assert "0–1" in titles.nth(0).inner_text() and "rad" in titles.nth(1).inner_text()   # gripper first, then joints
     page.locator(".plot-card").scroll_into_view_if_needed()
     page.screenshot(path=str(SHOTS / "rv_joint_help.png"))
+    page.close()
+
+
+def test_bimanual_ee_episode_renders_the_arm_grid(browser, site):
+    page = _open(browser, site, hash_="#demo/kitchen_put_spoon_seg48/chunk_000__episode_000003")
+    page.wait_for_selector("#plots .plot-grid")
+    cols = page.evaluate("getComputedStyle(document.querySelector('#plots .plot-grid')).gridTemplateColumns.split(' ').length")
+    assert cols == 2
+    heads = page.locator("#plots .plot-arm-head").all_inner_texts()
+    assert [h.upper() for h in heads] == ["LEFT ARM", "RIGHT ARM"]
+    titles = page.locator("#plots .plot-title").all_inner_texts()
+    assert any("position" in x for x in titles) and any("rotation" in x and "deg" in x for x in titles)
+    assert any("gripper" in x for x in titles) and any("joints" in x for x in titles)
+    # rotation panel: roll/pitch/yaw legend, raw toggle swaps to the 6 rot6d components
+    rot = page.locator("#plots .plot-block", has_text="rotation").first
+    assert "roll" in rot.locator(".legend").inner_text()
+    rot.locator(".raw-toggle").click()
+    assert rot.locator(".legend > span").count() == 6
+    page.locator(".plot-card").scroll_into_view_if_needed()
+    page.screenshot(path=str(SHOTS / "rv_traj_split.png"))
     page.close()

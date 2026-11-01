@@ -57,3 +57,35 @@ def test_joint_legend_shape():
     assert set(lg["signals"]) == {"follower_l_joint_pos", "follower_l_gripper_pos"}
     assert len(lg["signals"]["follower_l_joint_pos"]) == 6 and lg["summary"].startswith("Joint space")
     assert emb.joint_legend("raiden", None) is None
+
+
+def test_rot6d_to_euler_known_rotations():
+    import numpy as np
+    # identity → 0, 0, 0 (rows and columns agree on the identity)
+    assert np.allclose(emb.rot6d_to_euler_deg([[1, 0, 0, 0, 1, 0]]), 0, atol=1e-9)
+    c, s = np.cos(np.pi / 2), np.sin(np.pi / 2)
+    rz = np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]])
+    assert np.allclose(emb.rot6d_to_euler_deg([rz[:2].ravel()]), [[0, 0, 90]], atol=1e-6)                 # rows
+    assert np.allclose(emb.rot6d_to_euler_deg([rz[:, :2].T.ravel()], rows=False), [[0, 0, 90]], atol=1e-6)  # columns
+    # 30° roll about x, intrinsic xyz: roll comes back as 30
+    a = np.radians(30); rx = np.array([[1, 0, 0], [0, np.cos(a), -np.sin(a)], [0, np.sin(a), np.cos(a)]])
+    assert np.allclose(emb.rot6d_to_euler_deg([rx[:2].ravel()]), [[30, 0, 0]], atol=1e-6)
+
+
+def test_eef32_groups_and_layout():
+    import numpy as np
+    gs = emb.groups("webbed", "state", 32)
+    assert [(g["arm"], g["kind"], len(g["idx"])) for g in gs] == [
+        ("left", "position", 3), ("left", "rotation", 6), ("right", "position", 3), ("right", "rotation", 6),
+        ("left", "gripper", 1), ("right", "gripper", 1), ("left", "joints", 6), ("right", "joints", 6)]
+    assert gs[1]["rot"] == "rows" and emb.groups("agibot26", "joint_pos", 20)[1]["rot"] == "columns"
+    robot = {"signals": {"state": {"dims": 32, "series": np.zeros((4, 32)).tolist(), "min": 0, "max": 0}}}
+    robot["signals"]["state"]["series"] = [[0, 0, 0, 1, 0, 0, 0, 1, 0] + [0] * 9 + [0, 0] + [0] * 12 for _ in range(4)]
+    lay = emb.layout("webbed", robot)
+    rows = [(p["arm"], p["row"]) for p in lay]
+    assert rows[:2] == [("left", "position"), ("right", "position")] and ("left", "rotation") in rows and ("right", "joints") in rows
+    rot = next(p for p in lay if p["row"] == "rotation" and p["arm"] == "left")
+    assert rot["key"] == "state__left__rpy" and rot["raw_key"] == "state" and rot["raw_idx"] == [3, 4, 5, 6, 7, 8]
+    assert robot["signals"]["state__left__rpy"]["names"] == ["roll", "pitch", "yaw"]
+    # a single undocumented vector has no split
+    assert emb.layout("yam_sim", {"signals": {"joint_pos": {"dims": 14, "series": [[0] * 14], "min": 0, "max": 0}}}) is None
