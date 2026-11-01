@@ -14,7 +14,17 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import cache, catalog, clips, config, contrib, raiden_teachers, sources, jobs
+from . import (
+    cache,
+    catalog,
+    clips,
+    config,
+    contrib,
+    embodiments,
+    jobs,
+    raiden_teachers,
+    sources,
+)
 
 logger = logging.getLogger("raiden_viz")
 
@@ -348,6 +358,7 @@ def rebuild_raiden_teachers(sid: str):
 def overview(sid: str):
     ov = _src(sid).overview()
     ov["region"] = config.AWS_REGION
+    ov["state_convention"] = embodiments.convention(sid)   # how to read this dataset's state / action vectors
     return ov
 
 
@@ -517,9 +528,12 @@ def episode_facts(sid: str, task: str):
 @app.get("/api/sources/{sid}/tasks/{task}/episodes/{episode}")
 def episode_detail(sid: str, task: str, episode: str):
     try:
-        return _src(sid).episode_detail(task, episode)
+        d = _src(sid).episode_detail(task, episode)
     except FileNotFoundError as e:
         raise HTTPException(404, str(e))
+    if d.get("robot"):
+        d["robot"]["joint_legend"] = embodiments.joint_legend(sid, d["robot"])   # what each plotted axis means
+    return d
 
 
 @app.get("/api/sources/{sid}/tasks/{task}/episodes/{episode}/video")

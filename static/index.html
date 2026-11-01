@@ -152,6 +152,14 @@
 
       <div class="ov-stats" id="ov-stats"></div>
 
+      <!-- how to read this dataset's state / action vectors (raiden_viz/embodiments.py, served on the overview) -->
+      <section class="card ov-convention" id="ov-convention" hidden>
+        <details class="conv">
+          <summary><span class="conv-key">State convention</span><span id="conv-summary" class="conv-text"></span></summary>
+          <dl id="conv-body" class="conv-body"></dl>
+        </details>
+      </section>
+
       <div class="ov-charts">
         <section class="card">
           <div class="card-head">
@@ -279,10 +287,12 @@
         </section>
 
         <section class="card plot-card">
-          <div class="card-head">
-            <h3>Robot trajectories</h3>
-            <div id="plot-summary" class="mono subtle"></div>
+          <!-- no title (user, 2026-11-01): the step/duration/rate summary and the ? legend live in the body -->
+          <div class="plot-head">
+            <span id="plot-summary" class="mono subtle"></span>
+            <button id="plot-help" class="help-btn" type="button" aria-label="What each axis means" title="What each axis means">?</button>
           </div>
+          <div id="plot-help-pop" class="help-pop" hidden></div>
           <div id="plots"></div>
         </section>
 

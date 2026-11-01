@@ -162,7 +162,7 @@ def build_robot(table, info: dict, max_points: int = 600) -> dict:
 
     signals: dict[str, dict] = {}
 
-    def add(name, arr):
+    def add(name, arr, names=None):
         arr = np.asarray(arr, dtype=np.float64)
         if arr.ndim == 1:
             arr = arr[:, None]
@@ -172,6 +172,8 @@ def build_robot(table, info: dict, max_points: int = 600) -> dict:
             "min": round(float(arr.min()), 5),
             "max": round(float(arr.max()), 5),
         }
+        if names and len(names) == arr.shape[1] and set(names) != {"state"} and set(names) != {"action"}:
+            signals[name]["names"] = [str(n) for n in names]   # the repo's own per-dimension names (legend)
 
     _emit_split(table, cols, "observation.state", info.get("state_names"), "pos", add)
     _emit_split(table, cols, "action", info.get("action_names"), "cmd", add)
@@ -207,7 +209,7 @@ def _emit_split(table, cols, column: str, names, kind: str, add) -> None:
         part = "gripper" if nm.endswith("gripper") else "joint"
         groups.setdefault(f"{side}{part}_{kind}", []).append(j)
     for name, jcols in groups.items():
-        add(name, arr[:, jcols])
+        add(name, arr[:, jcols], [names[j] for j in jcols])
 
 
 def subtasks_to_annotations(table) -> list:
