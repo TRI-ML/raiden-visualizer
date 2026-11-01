@@ -679,4 +679,15 @@ async def _unhandled(_request, exc: Exception):
 
 
 # Serve the frontend at the root. Mounted last so /api/* wins.
+# Browsers heuristically cache un-headed static files for hours, so a deploy left users on the old app.js/style.css
+# (2026-11-01: the 2x3 camera grid and the ? legend "did not work"). no-cache = always revalidate (ETag), still cheap.
+@app.middleware("http")
+async def _static_no_cache(request, call_next):
+    response = await call_next(request)
+    path = request.url.path
+    if not path.startswith("/api/") and (path == "/" or path.endswith((".js", ".css", ".html", ".svg"))):
+        response.headers["Cache-Control"] = "no-cache"
+    return response
+
+
 app.mount("/", StaticFiles(directory=str(_STATIC), html=True), name="static")
