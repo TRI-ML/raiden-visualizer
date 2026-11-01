@@ -530,10 +530,17 @@ async function renderCatalog() {
     sections.forEach(([title, pick]) => {
       const items = shown.filter(pick);
       if (!items.length) return;
-      const h = el("div", "cat-section-title", title);
+      // collapsible section (user, 2026-11-01); the open/closed state is remembered per browser
+      const key = `rv_sec_${title.replace(/\W+/g, "_")}`;
+      const h = el("div", "cat-section-title", "");
+      const chev = el("span", "chev", "▾"); h.appendChild(chev);
+      h.appendChild(el("span", "ttl", title));
       h.appendChild(el("span", "n", `${items.length} dataset${items.length === 1 ? "" : "s"}`));
       grid.appendChild(h);
       const sec = el("div", "cat-section"); grid.appendChild(sec);
+      const apply = (open) => { sec.classList.toggle("hidden", !open); h.classList.toggle("closed", !open); chev.textContent = open ? "▾" : "▸"; };
+      apply(localStorage.getItem(key) !== "closed");
+      h.onclick = () => { const open = sec.classList.contains("hidden"); localStorage.setItem(key, open ? "open" : "closed"); apply(open); };
       items.forEach((c) => renderCard(c, sec));
     });
   }
