@@ -36,6 +36,16 @@ ANNOTATED = {**DETAIL, "episode": "chunk_000__episode_000003",
              "annotations": [{"t": 0.5, "text": "reach for the spoon"}, {"t": 6.0, "text": "grasp the spoon"},
                              {"t": 11.0, "text": "place it in the drawer"}]}
 
+# /conventions: a curated table plus the info.json features (state covered and named, action covered but 3-D in
+# info.json, joint_state not covered -> its own group from info.json)
+CONV = {"curated": {"frame": "Joint space, 2-D per arm.", "rate": "30 Hz", "verified": "fixture",
+                    "groups": [{"key": "observation.state / action", "dims": 2,
+                                "axes": [["0", "joint 1", "rad", "shoulder"], ["1", "gripper", "0-1", "unverified polarity"]]}]},
+        "features": [{"key": "observation.state", "dims": 2, "names": ["j1", "grip"]},
+                     {"key": "action", "dims": 3, "names": None},
+                     {"key": "joint_state", "dims": 2, "names": None}],
+        "features_from": "s3://b/p/meta/info.json"}
+
 
 def _route(route):
     url = route.request.url
@@ -45,6 +55,7 @@ def _route(route):
     elif path == "api/catalog": body = CATALOG
     elif path in ("api/contrib", "api/raiden_teachers"): return route.fulfill(status=404, body="{}")
     elif path == "api/sources/demo/stats": body = STATS
+    elif path == "api/sources/demo/conventions": body = CONV
     elif path == "api/sources/demo/tasks": body = {"tasks": [TASK["task"]]}
     elif path == "api/sources/demo/overview": body = {"bucket": "b", "prefix": "p", "region": "us-west-2", "num_episodes": 2, "num_tasks": 1, "tasks": [TASK], "stations": []}
     elif path.endswith("/episodes"): body = {"episodes": ["chunk_000__episode_000001", "chunk_000__episode_000003"], "total": 2, "featured": False}
@@ -136,6 +147,22 @@ def test_compare_bars_grow_in_unless_reduced_motion(browser, site):
     page.wait_for_selector(".cat-card")
     page.wait_for_timeout(900)
     assert page.evaluate("state.catBarsGrown") is None                   # drawn at full width, no tween
+    page.close()
+
+
+def test_state_action_convention_card(browser, site):
+    page = _open(browser, site, "#demo")
+    page.wait_for_selector("#conv-card .conv-table")
+    card = page.locator("#conv-card")
+    assert card.is_visible()                                             # shown open on the dataset page
+    assert "Joint space, 2-D per arm." in card.inner_text() and "30 Hz" in card.inner_text()
+    groups = card.locator(".conv-group")
+    assert groups.count() == 2                                           # curated group + uncovered joint_state
+    assert "info.json names: j1, grip" in groups.nth(0).inner_text()
+    assert "action is 3-D" in groups.nth(0).inner_text()                 # dims mismatch flagged
+    assert "joint_state" in groups.nth(1).inner_text()
+    assert card.locator("td.conv-unv").count() == 2                      # gripper meaning + the unnamed joint_state row
+    card.screenshot(path=str(SHOTS / "rv_conventions.png"))
     page.close()
 
 

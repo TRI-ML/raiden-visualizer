@@ -1,0 +1,166 @@
+{
+  "_doc": "Per-dataset state/action conventions shown on the dataset page (/api/sources/{sid}/conventions). Curated from the real files on S3 (2026-11-01); 'verified' says what was checked, 'unverified' rows say what was not. A string value is an alias to another entry. LeRobot sources also get their info.json feature names/dims attached live by the API.",
+  "raiden": {
+    "frame": "Joint space, one 7-D vector per arm (two YAM arms, each in its own base frame); robot_data.npz keeps the arms separate, policies concatenate [L 7, R 7] = 14-D. Gripper normalised 0-1, 1 = open (episodes start at ~0.99).",
+    "rate": "robot ~100 Hz (metadata robot_hz 99.1), cameras 30 fps",
+    "verified": "robot_data.npz + metadata.json of tri-yam/raw/tie_rope/russet_2026-04-08T10-55-02 (keys, shapes, ranges, rate). Effort unit not checked.",
+    "groups": [
+      {"key": "follower_{l,r}_joint_pos_7d", "dims": 7, "axes": [
+        ["0-5", "joint 1-6", "rad", "measured follower arm joints, base to wrist"],
+        ["6", "gripper", "0-1", "measured gripper opening, 1 = open"]]},
+      {"key": "follower_{l,r}_joint_cmd", "dims": 7, "axes": [
+        ["0-5", "joint 1-6", "rad", "commanded follower joints (tracks the leader arm)"],
+        ["6", "gripper", "0-1", "commanded gripper, 1 = open"]]},
+      {"key": "leader_{l,r}_joint_pos / _vel / _eff", "dims": 6, "axes": [
+        ["0-5", "joint 1-6", "rad, rad/s, effort", "teleop leader arm; effort unit unverified"]]}
+    ]
+  },
+  "raiden2": "raiden",
+  "yam_russet": "raiden",
+  "policy_rollouts": "raiden",
+  "eval_rollouts": "raiden",
+  "yam": {
+    "frame": "Joint space per arm from the Foxglove MCAP: RobotState (6 joints) + GripperState (1) per arm, each arm in its own base frame. Gripper 0-1, 1 = open (episodes start at ~0.97).",
+    "rate": "proprio ~290 Hz (22.4k messages over 2.3k camera frames), cameras 30 fps",
+    "verified": "MCAP summary + first messages of yam_raw/2026_03_30_zed/insert_the_plug/episode_01998e2b...",
+    "groups": [
+      {"key": "/{left,right}-arm-proprio", "dims": 6, "axes": [["0-5", "joint 1-6", "rad", "measured arm joints"]]},
+      {"key": "/{left,right}-eef-proprio", "dims": 1, "axes": [["0", "gripper", "0-1", "measured gripper opening, 1 = open"]]},
+      {"key": "/{left,right}-arm-leader, -eef-leader", "dims": 7, "axes": [["0-6", "joint 1-6 + gripper", "rad, 0-1", "teleop leader command (not plotted)"]]}
+    ]
+  },
+  "xdof_zed": "yam",
+  "abc130k": {
+    "frame": "Joint space per arm from the MCAP: RobotState (6 joints) + GripperState (1), each arm in its own base frame; the Argus LeRobot copy (abc130k_v3ar) carries the same values as joint_state 14-D [L j1-6, L grip, R j1-6, R grip] (block layout, not interleaved) plus a 20-D end-effector state. Gripper 0-1, 1 = open.",
+    "rate": "state ~290 Hz, action ~200 Hz in the MCAP; cameras 30 fps (LeRobot copy resampled to 30 Hz)",
+    "verified": "MCAP summary + first messages of train/arrange_the_flowers_into_the_vase/episode_01126762...; abc130k_v3ar t000 info.json, stats.json and episode 0 (joint_state matches the MCAP values). EE rot6d row/column order unverified.",
+    "groups": [
+      {"key": "/{left,right}-arm-state", "dims": 6, "axes": [["0-5", "joint 1-6", "rad", "measured arm joints (plotted)"]]},
+      {"key": "/{left,right}-ee-state", "dims": 1, "axes": [["0", "gripper", "0-1", "measured gripper opening, 1 = open"]]},
+      {"key": "/{left,right}-arm-action, -ee-action", "dims": 7, "axes": [["0-6", "joint 1-6 + gripper", "rad, 0-1", "commanded targets (not plotted)"]]},
+      {"key": "LeRobot copy: observation.state / action", "dims": 20, "axes": [
+        ["0-2, 10-12", "L / R tcp x y z", "m", "end-effector position in that arm's base frame"],
+        ["3-8, 13-18", "L / R rot6d", "-1..1", "6-D rotation (two rows/columns of R, order unverified)"],
+        ["9, 19", "L / R gripper", "0-1", "1 = open"]]}
+    ]
+  },
+  "abc130k_val": "abc130k",
+  "worldengine": {
+    "frame": "Joint space, 14-D [L 6 joints, L gripper, R 6 joints, R gripper], absolute positions; names from info.json. State gripper 0-1, 1 = open (episode 0 starts at 0.999).",
+    "rate": "60 Hz (info.json fps)",
+    "verified": "info.json + stats.json + episode 0 of accessory-return. stats.json gives the action gripper range 0-0.08 while episode 0 reads 1.0: action gripper scale unverified.",
+    "groups": [
+      {"key": "observation.state", "dims": 14, "axes": [
+        ["0-5, 7-12", "waist, shoulder, elbow, forearm_roll, wrist_angle, wrist_rotate", "rad", "measured joints, left then right"],
+        ["6, 13", "left / right gripper", "0-1", "gripper opening, 1 = open"]]},
+      {"key": "action", "dims": 14, "axes": [
+        ["0-5, 7-12", "same joint names", "rad", "commanded joint targets"],
+        ["6, 13", "left / right gripper", "unverified", "commanded gripper (stats 0-0.08 vs data 1.0)"]]}
+    ]
+  },
+  "molmoact2_yam": {
+    "frame": "Joint space, 14-D [L joint_0-5, L gripper, R joint_0-5, R gripper], absolute positions; names from info.json. Gripper 0-1, 1 = open (inferred).",
+    "rate": "30 Hz",
+    "verified": "info.json + stats.json at the repo root. Gripper polarity not checked on an episode.",
+    "groups": [
+      {"key": "observation.state / action", "dims": 14, "axes": [
+        ["0-5, 7-12", "left / right joint_0..5.pos", "rad", "arm joints (state measured, action commanded)"],
+        ["6, 13", "left / right gripper.pos", "0-1", "gripper opening"]]}
+    ]
+  },
+  "realomni": {
+    "frame": "Egocentric UMI (robot_type umi_bimanual): two hand-held grippers, no robot or base. End-effector space, absolute poses; position origin = midpoint of the two TCPs at frame 0 (frame 0 left = -right), axes from the SLAM map (orientation not identity at start). action equals observation.state (identical stats). fraction_open 0-1, 1 = open.",
+    "rate": "30 Hz, two fisheye wrist cameras",
+    "verified": "info.json + stats.json of realomin_s1 / s3, episode 0 of s1. 'Midpoint origin' read off one episode; rot6d row/column order unverified; whether action is the same frame or the next frame unverified.",
+    "groups": [
+      {"key": "observation.state / action", "dims": 20, "axes": [
+        ["0-2, 10-12", "left / right tcp_x y z", "m", "gripper TCP position (spans several m: the operator walks)"],
+        ["3-8, 13-18", "left / right rot6d_0..5", "-1..1", "6-D rotation"],
+        ["9, 19", "left / right fraction_open", "0-1", "gripper opening, 1 = open"]]},
+      {"key": "observation.eef_camera_pose", "dims": 18, "axes": [
+        ["0-2, 9-11", "left / right cam x y z", "m", "wrist camera position, same frame"],
+        ["3-8, 12-17", "left / right rot6d", "-1..1", "wrist camera rotation"]]},
+      {"key": "observation.pose_valid", "dims": 2, "axes": [["0, 1", "left / right", "bool", "SLAM pose tracked this frame"]]}
+    ]
+  },
+  "droid": {
+    "frame": "Single Franka Panda. observation.state / action are end-effector (robot base frame); joint_state / joint_action are joint space. info.json names are opaque ('state', 'joint_state'): layout from shapes + stats. Gripper 0-1, 1 = open in this copy (episodes start and end at 1.0; original DROID uses 1 = closed).",
+    "rate": "15 Hz",
+    "verified": "droid_full info.json + stats.json + episode 0. rot6d order and gripper polarity inferred, unverified.",
+    "groups": [
+      {"key": "observation.state / action", "dims": 10, "axes": [
+        ["0-2", "x y z", "m", "end-effector position, robot base frame"],
+        ["3-8", "rot6d", "-1..1", "6-D rotation"],
+        ["9", "gripper", "0-1", "gripper, 1 = open (unverified)"]]},
+      {"key": "joint_state / joint_action", "dims": 8, "axes": [
+        ["0-6", "joint 1-7", "rad", "Panda joints"],
+        ["7", "gripper", "0-1", "same gripper value"]]}
+    ]
+  },
+  "habit": {
+    "frame": "Dual Franka Panda, same layout as DROID per arm (two blocks). observation.state / action end-effector, joint_state / joint_action joint space; names opaque. Gripper 0-1, 1 = open (inferred).",
+    "rate": "10 Hz",
+    "verified": "habit_full info.json + stats.json + episode 0. Which block is the left arm, the EE frame and the rot6d order are unverified (action positions have outliers to +-7 m).",
+    "groups": [
+      {"key": "observation.state / action", "dims": 20, "axes": [
+        ["0-2, 10-12", "arm A / B x y z", "m", "end-effector position (A = left assumed, unverified)"],
+        ["3-8, 13-18", "arm A / B rot6d", "-1..1", "6-D rotation"],
+        ["9, 19", "arm A / B gripper", "0-1", "1 = open"]]},
+      {"key": "joint_state / joint_action", "dims": 16, "axes": [
+        ["0-6, 8-14", "arm A / B joint 1-7", "rad", "Panda joints"],
+        ["7, 15", "arm A / B gripper", "0-1", "1 = open"]]}
+    ]
+  },
+  "agibot26": {
+    "frame": "AgiBot G2 (robot_type agibot_g2a), two 7-DoF arms; layout as HABIT: 20-D end-effector state/action, 16-D joint state/action; plus waist_state (5) and arm_moving (2). Names opaque. Gripper 0-1, 1 = open (inferred).",
+    "rate": "30 Hz",
+    "verified": "info.json + stats.json + episode 0 of one task repo (task_3400_313498_314085); repos may differ. Arm order, EE frame and rot6d order unverified.",
+    "groups": [
+      {"key": "observation.state / action", "dims": 20, "axes": [
+        ["0-2, 10-12", "arm A / B x y z", "m", "end-effector position"],
+        ["3-8, 13-18", "arm A / B rot6d", "-1..1", "6-D rotation"],
+        ["9, 19", "arm A / B gripper", "0-1", "1 = open"]]},
+      {"key": "joint_state / joint_action", "dims": 16, "axes": [
+        ["0-6, 8-14", "arm A / B joint 1-7", "rad", "arm joints"],
+        ["7, 15", "arm A / B gripper", "0-1", "1 = open"]]},
+      {"key": "waist_state", "dims": 5, "axes": [["0-4", "w0-w4", "unverified", "waist / body joints"]]}
+    ]
+  },
+  "agibot_beta": {
+    "frame": "AgiBot A2D (robot_type agibot_a2d), same 20-D / 16-D layout as AgiBot World 2026; waist_state is 2-D (pitch, lift). Names opaque.",
+    "rate": "30 Hz",
+    "verified": "info.json + stats.json of agibot_beta_task_327 (its first-arm gripper is constant 0). Arm order, EE frame, rot6d order and units of lift unverified.",
+    "groups": [
+      {"key": "observation.state / action", "dims": 20, "axes": [
+        ["0-2, 10-12", "arm A / B x y z", "m", "end-effector position"],
+        ["3-8, 13-18", "arm A / B rot6d", "-1..1", "6-D rotation"],
+        ["9, 19", "arm A / B gripper", "0-1", "1 = open"]]},
+      {"key": "joint_state / joint_action", "dims": 16, "axes": [
+        ["0-6, 8-14", "arm A / B joint 1-7", "rad", "arm joints"],
+        ["7, 15", "arm A / B gripper", "0-1", "1 = open"]]},
+      {"key": "waist_state", "dims": 2, "axes": [["0, 1", "pitch, lift", "rad, unverified", "waist pitch and lift"]]}
+    ]
+  },
+  "yam_sim": {
+    "frame": "Isaac YAM twin, joint space 14-D [L 6 joints, L gripper, R 6 joints, R gripper] (the policy space); action = absolute joint targets. Names opaque ('state'). Gripper 0-1; the sim resets state to all zeros, action gripper starts at 1.",
+    "rate": "30 Hz",
+    "verified": "info.json + stats.json + episode 0 of pickbanana_dart05_1k_sq_real_x3 (left arm idle there). Gripper polarity in sim unverified.",
+    "groups": [
+      {"key": "observation.state / action", "dims": 14, "axes": [
+        ["0-5, 7-12", "left / right joint 1-6", "rad", "arm joints (state measured, action commanded)"],
+        ["6, 13", "left / right gripper", "0-1", "gripper (polarity unverified)"]]}
+    ]
+  },
+  "webbed": {
+    "frame": "AnyData eef32 (absolute): both arms' end-effector pose, grippers and joints in one 32-D row; each arm in its own base frame, FK of the YAM grasp_site. Gripper 0-1, 1 = open (inferred).",
+    "rate": "30 Hz data (clips muxed at 10 fps)",
+    "verified": "metadata_shared.json (state/action dim 32, absolute) + one lowdim shard of kitchen_put_spoon_seg48 (rotation rows orthonormal, grippers at 18-19, joints at 20-31); layout per the vendored AnyData converter (raiden_core.EEF32_LAYOUT).",
+    "groups": [
+      {"key": "state / action", "dims": 32, "axes": [
+        ["0-2, 9-11", "L / R xyz", "m", "end-effector position, arm base frame"],
+        ["3-8, 12-17", "L / R rot rows 0-1", "-1..1", "first two rows of the rotation matrix (row-major)"],
+        ["18, 19", "L / R gripper", "0-1", "gripper opening"],
+        ["20-25, 26-31", "L / R joint 1-6", "rad", "arm joints"]]}
+    ]
+  }
+}

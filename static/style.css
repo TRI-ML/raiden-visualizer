@@ -779,6 +779,23 @@ select option { background: var(--bg-elev); color: var(--text); }
 .video-head:not(:has(.seg:not(.hidden))) { display: none; }
 .lang-card .lang-list { padding-top: 6px; }
 
+/* ---------- Overview: state & action convention ---------- */
+.conv-card { margin-bottom: 18px; }
+.conv-body { padding: 12px 16px 14px; }
+.conv-frame { margin: 0 0 8px; color: var(--text); line-height: 1.5; }
+.conv-facts { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; margin-bottom: 10px; font-size: var(--fs-small); }
+.conv-verified { color: var(--text-faint); }
+.conv-table { width: 100%; border-collapse: collapse; font-size: var(--fs-small); }
+.conv-table th { text-align: left; font-weight: 600; color: var(--text-faint); text-transform: uppercase; letter-spacing: .06em;
+  padding: 6px 8px; border-bottom: 1px solid var(--border); }
+.conv-table td { padding: 5px 8px; border-bottom: 1px solid var(--border-soft); color: var(--text-dim); vertical-align: top; }
+.conv-table td.mono { color: var(--text); white-space: nowrap; }
+.conv-group td { background: var(--bg-elev); color: var(--text); padding-top: 8px; }
+.conv-dims { margin-left: 8px; color: var(--text-faint); }
+.conv-flag { margin-left: 8px; color: var(--warn); }
+.conv-names { margin-top: 3px; color: var(--text-faint); font-size: 10.5px; white-space: normal; }
+.conv-table td.conv-unv { color: var(--warn); }   /* a cell that says what was not verified */
+
 /* ---------- Full-page loader (body.is-loading) ---------- */
 /* Only the robot shows while the catalog / a dataset loads; the real UI fades in once data lands. */
 #sidebar, #main { transition: opacity .35s ease; }

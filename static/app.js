@@ -1023,9 +1023,66 @@ async function renderOverview() {
     renderTaskList();
     loadTaskTeachers();   // reveals the robot-teacher filter when its scan is ready
     renderAnalytics(ov.tasks.map((t) => t.task));
+    renderConventions();
   } catch (e) {
     toast("Failed to load overview: " + e.message);
   }
+}
+
+/* ---------------- Overview: state & action convention ---------------- */
+
+// One table per signal group (axis -> name -> unit/range -> meaning) from the curated conventions.json, checked
+// against the LeRobot info.json features the API attaches: a dims mismatch is flagged, real info.json names are
+// listed, and a float feature the curated table does not cover gets its own group straight from info.json.
+async function renderConventions() {
+  const sid = state.source, card = $("#conv-card"), body = $("#conv-body");
+  card.hidden = true;
+  body.innerHTML = "";
+  let c;
+  try { c = await api(`${apiBase()}/conventions`); } catch (_) { return; }   // the card is optional; stays hidden
+  if (state.source !== sid) return;
+  const cur = c.curated || {}, feats = c.features || [];
+  const groups = (cur.groups || []).map((g) => ({ ...g, feats: [] }));
+  const extra = [];
+  feats.forEach((f) => {
+    const g = groups.find((x) => x.key.split(/\s*\/\s*/).includes(f.key));
+    if (g) g.feats.push(f); else extra.push(f);
+  });
+  extra.forEach((f) => groups.push({
+    key: f.key, dims: f.dims, feats: [f],
+    axes: f.names ? f.names.map((n, i) => [String(i), n, "", ""])
+      : [[f.dims > 1 ? `0-${f.dims - 1}` : "0", "(no per-axis names in info.json)", "", "unverified"]],
+  }));
+  if (!groups.length && !cur.frame) return;
+  card.hidden = false;
+  $("#conv-hint").textContent = c.features_from ? "curated + info.json" : "curated";
+  $("#conv-hint").title = c.features_from || "raiden_viz/conventions.json";
+  if (cur.frame) body.appendChild(el("p", "conv-frame", cur.frame));
+  const facts = el("div", "conv-facts");
+  if (cur.rate) facts.appendChild(el("span", "cat-fmt", cur.rate));
+  if (cur.verified) facts.appendChild(el("span", "conv-verified", `Checked: ${cur.verified}`));
+  if (facts.childNodes.length) body.appendChild(facts);
+  const table = el("table", "conv-table");
+  table.innerHTML = "<thead><tr><th>Axis</th><th>Name</th><th>Unit / range</th><th>Meaning</th></tr></thead>";
+  const tb = el("tbody");
+  groups.forEach((g) => {
+    const head = el("tr", "conv-group");
+    const th = el("td"); th.colSpan = 4;
+    th.appendChild(el("span", "mono", g.key));
+    th.appendChild(el("span", "conv-dims", `${g.dims}-D`));
+    g.feats.filter((f) => f.dims !== g.dims).forEach((f) =>
+      th.appendChild(el("span", "conv-flag", `info.json: ${f.key} is ${f.dims}-D`)));
+    const named = g.feats.find((f) => f.names);
+    if (named) th.appendChild(el("div", "conv-names mono", `info.json names: ${named.names.join(", ")}`));
+    head.appendChild(th); tb.appendChild(head);
+    g.axes.forEach((row) => {
+      const tr = el("tr");
+      row.forEach((v, i) => tr.appendChild(el("td", v.includes("unverified") ? "conv-unv" : i < 2 ? "mono" : null, v)));
+      tb.appendChild(tr);
+    });
+  });
+  table.appendChild(tb);
+  body.appendChild(table);
 }
 
 /* ---------------- Overview: per-task breakdown ---------------- */

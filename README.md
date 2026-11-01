@@ -52,6 +52,12 @@ For each episode the viewer renders the video, a metadata panel, subtask
 annotations (where present), per-signal robot trajectory plots, and — for
 calibrated `.svo2` sources — a calibration summary with an alignment overlay.
 
+Each dataset page also has a **State & action convention** table (axis → name → unit/range → meaning, plus the
+frame, gripper polarity and rate). The facts live in `raiden_viz/conventions.json`, one entry per source with a
+`verified` note saying what was checked on S3; for LeRobot sources `/api/sources/<id>/conventions` adds the
+`meta/info.json` feature names and dims, and the page flags any dims mismatch. Add an entry when adding a source
+(`tests/test_conventions.py` fails otherwise).
+
 ## The catalog (landing page)
 
 The home page is a **dataset catalog**: cross-dataset aggregate stats (total
