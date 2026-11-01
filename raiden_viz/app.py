@@ -532,7 +532,10 @@ def episode_detail(sid: str, task: str, episode: str):
     except FileNotFoundError as e:
         raise HTTPException(404, str(e))
     if d.get("robot"):
+        lay = embodiments.layout(sid, d["robot"])                              # arm × quantity panels (+ rpy signals)
         d["robot"]["joint_legend"] = embodiments.joint_legend(sid, d["robot"])   # what each plotted axis means
+        if lay:
+            d["robot"]["joint_legend"]["layout"] = lay
     return d
 
 
