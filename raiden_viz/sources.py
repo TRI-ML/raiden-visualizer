@@ -286,6 +286,12 @@ class Source:
     def _swr_blob(self, key: str) -> str:
         return f"{key}_{self.id}.json"
 
+    def overview_peek(self) -> dict | None:
+        """The memoised or persisted overview, never building one (catalog overlays read it per request)."""
+        with self._overview_lock:
+            cur = (self._swr_state.get("overview_v2") or {}).get("value")
+        return cur or cache.get_json(self._swr_blob("overview_v2"), remote=True)
+
     def _swr(self, key: str, build) -> dict:
         """Serve the memoised value; on a cold container restore the derived-tier blob so
         the first dataset click is instant; a value older than OVERVIEW_TTL_S is served
