@@ -768,3 +768,8 @@ select option { background: var(--bg-elev); color: var(--text); }
 /* "N featured of M — show all": a real control, not grey italics */
 #episode-list li.ep-li-all { border: 1px dashed var(--border); border-radius: var(--radius-sm); }
 #episode-list li.ep-li-all:hover { background: var(--accent-soft); }
+
+/* the camera card head is only the eye toggle now; drop it entirely for mono cameras */
+.video-head { justify-content: flex-end; padding: 8px 12px; }
+.video-head:not(:has(.seg:not(.hidden))) { display: none; }
+.lang-card .lang-list { padding-top: 6px; }
