@@ -1101,7 +1101,9 @@ class YamMcapSource(Source):
         # Make room for the big MCAP + its extracted MP4s before downloading, so
         # a near-full cache can't wedge mid-download.
         cache.evict(headroom_gb=min(2.0, obj.size / 1024**3 * 1.5))
-        tmp = cache.path_for(f"yam_{obj.etag}.mcap.tmp{os.getpid()}")
+        # per pid AND thread: concurrent requests for one episode (detail + each camera's status) mine the same
+        # MCAP in parallel threads, and a shared temp name let one unlink the file another was still reading
+        tmp = cache.path_for(f"yam_{obj.etag}.mcap.tmp{os.getpid()}_{threading.get_ident()}")
         try:
             s3.download(obj.key, tmp, bucket=self.bucket)
             probe = yam.probe(tmp)
@@ -1119,7 +1121,7 @@ class YamMcapSource(Source):
                 sib = self._annotation_key(task, episode)
                 sib_obj = s3.try_head(sib, bucket=self.bucket)
                 if sib_obj is not None:
-                    atmp = cache.path_for(f"yam_{obj.etag}_ann.mcap.tmp{os.getpid()}")
+                    atmp = cache.path_for(f"yam_{obj.etag}_ann.mcap.tmp{os.getpid()}_{threading.get_ident()}")
                     try:
                         s3.download(sib, atmp, bucket=self.bucket)
                         mr["annotations"] = yam.read_annotation_mcap(atmp, mr.get("start_abs", 0.0))
