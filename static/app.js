@@ -496,36 +496,46 @@ async function renderCatalog() {
   if (ENV === "prod") data.datasets = data.datasets.filter((c) => c.prod !== false);   // dev-only datasets (e.g. yam_sim) leave Prod entirely
 
   const a = data.aggregate;
-  agg.innerHTML = [
-    ["Datasets", a.num_datasets],
-    ["Episodes", (a.total_episodes || 0).toLocaleString()],
-    ["Tasks", (a.total_tasks || 0).toLocaleString()],
-    // Sums per-card hours, which are estimates for any sampled source — so the
-    // total is an estimate too the moment one of them is.
-    ["Hours", a.total_hours
-      ? `${data.datasets.some((d) => d.sampled) ? "~" : ""}${a.total_hours.toLocaleString()}`
-      : "—"],
-    // "With annotations" tile dropped (user, 2026-11-01)
-  ].map(([k, v]) => `<div class="cat-stat"><div class="cat-stat-v">${v}</div><div class="cat-stat-k">${k}</div></div>`).join("");
-
-  // card area: filter pills + sections; redrawn when a pill is clicked
-  function drawCards() {
-    grid.innerHTML = "";
-    // Embodiment filter pills (user, 2026-11-01: like yam-eval's filters): All + every embodiment present in the catalog.
-    const embs = [...new Set(data.datasets.flatMap((c) => c.embodiments || []))].sort();
-    state.embFilter = state.embFilter || localStorage.getItem("rv_emb") || "";
-    if (state.embFilter && !embs.includes(state.embFilter)) state.embFilter = "";
-    const filt = el("div", "cat-filter");
-    filt.appendChild(el("span", "cat-filter-k", "Embodiment"));
-    [["", "All"], ...embs.map((e) => [e, e])].forEach(([val, label]) => {
-      const b = el("button", "cat-pill" + (state.embFilter === val ? " active" : ""), label);
-      b.type = "button";
-      b.onclick = () => { state.embFilter = val; localStorage.setItem("rv_emb", val); drawCards(); };
-      filt.appendChild(b);
+  // One filtered view (user, 2026-11-01): the filter strip drives the tiles, the Compare chart and the sections.
+  const ORIGINS = [["", "All"], ["tri", "TRI"], ["open", "Open source"], ["purchased", "Purchased"]];
+  const embs = [...new Set(data.datasets.flatMap((c) => c.embodiments || []))].sort();
+  state.embFilter = state.embFilter ?? (localStorage.getItem("rv_emb") || "");
+  state.originFilter = state.originFilter ?? (localStorage.getItem("rv_origin") || "");
+  if (state.embFilter && !embs.includes(state.embFilter)) state.embFilter = "";
+  const shownNow = () => data.datasets.filter((c) =>
+    (!state.embFilter || (c.embodiments || []).includes(state.embFilter)) && (!state.originFilter || c.origin === state.originFilter));
+  const pills = (box, label, options, current, onPick) => {
+    const row = el("div", "cat-filter");
+    row.appendChild(el("span", "cat-filter-k", label));
+    options.forEach(([val, text]) => {
+      const b = el("button", "cat-pill" + (current === val ? " active" : ""), text);
+      b.type = "button"; b.onclick = () => onPick(val);
+      row.appendChild(b);
     });
-    grid.appendChild(filt);
-    const shown = state.embFilter ? data.datasets.filter((c) => (c.embodiments || []).includes(state.embFilter)) : data.datasets;
-    // two sections (user, 2026-10-31): datasets collected at TRI, then the open-source / purchased ones
+    box.appendChild(row);
+  };
+  function draw(animateBars) {
+    const shown = shownNow();
+    const bar = $("#cat-filterbar"); bar.innerHTML = "";
+    pills(bar, "Embodiment", [["", "All"], ...embs.map((e) => [e, e])], state.embFilter,
+      (v) => { state.embFilter = v; localStorage.setItem("rv_emb", v); draw(true); });
+    pills(bar, "Origin", ORIGINS, state.originFilter,
+      (v) => { state.originFilter = v; localStorage.setItem("rv_origin", v); draw(true); });
+    // tiles from the FILTERED datasets; hours are an estimate as soon as one included set is sampled
+    const sum = (k) => shown.reduce((s, c) => s + (c[k] || 0), 0);
+    const hours = sum("total_hours");
+    agg.innerHTML = [
+      ["Datasets", shown.length],
+      ["Episodes", sum("num_episodes").toLocaleString()],
+      ["Tasks", sum("num_tasks").toLocaleString()],
+      ["Hours", hours ? `${shown.some((d) => d.sampled) ? "~" : ""}${Math.round(hours).toLocaleString()}` : "—"],
+    ].map(([k, v]) => `<div class="cat-stat"><div class="cat-stat-v">${v}</div><div class="cat-stat-k">${k}</div></div>`).join("");
+    // chart: filtered rows on the unfiltered axis, so a bar keeps its length across filters
+    state.catalogShown = shown;
+    drawCatalogBars(state.catMetric || "episodes", animateBars);
+    $("#cat-hint").textContent = a.building ? `${a.building} computing…` : `${shown.length} of ${data.datasets.length} datasets`;
+    grid.innerHTML = "";
+    // sections (user, 2026-10-31): datasets collected at TRI, then the open-source / purchased ones; an Origin pick leaves one
     const sections = [["TRI", (c) => c.origin === "tri"], ["Open source / Purchased", (c) => c.origin !== "tri"]];
     sections.forEach(([title, pick]) => {
       const items = shown.filter(pick);
@@ -544,7 +554,9 @@ async function renderCatalog() {
       items.forEach((c) => renderCard(c, sec));
     });
   }
-  drawCards();
+  state.catalog = data.datasets;   // the full list (card lookups, axis max); state.catalogShown is the filtered view
+  draw(!state._barsDrawn);   // bars grow once per page load, not on every poll
+  state._barsDrawn = true;
   function renderCard(c, grid) {
     const card = document.createElement("div");
     card.className = "cat-card";
@@ -595,16 +607,11 @@ async function renderCatalog() {
     grid.appendChild(card);
   }
 
-  // Stash the cards for the comparison bar chart (redrawn on metric toggle / resize).
-  state.catalog = data.datasets;
-  drawCatalogBars(state.catMetric || "episodes", !state._barsDrawn);   // grow once per page load, not on every poll
-  state._barsDrawn = true;
   if (ENV === "dev") {   // the activity panels belong to the dev feature set (see initEnv)
     loadContrib();   // upload-activity calendar (independent /api/contrib scan)
     loadTeachers();  // raiden teleop-per-day-by-teacher bars (/api/raiden_teachers)
   }
 
-  $("#cat-hint").textContent = a.building ? `${a.building} computing…` : `${a.num_datasets} datasets`;
   // Poll while any dataset's deep summary is still building.
   if (a.building > 0 && !state.source) {
     clearTimeout(state._catTimer);
@@ -630,10 +637,12 @@ function drawCatalogBars(metric, animate = true) {
   cancelAnimationFrame(state._barAnim);
   const m = CAT_METRICS[metric] || CAT_METRICS.episodes;
   // Rows for datasets that have this metric (skip still-building/absent values).
-  const rows = state.catalog
+  const rowsOf = (list) => list
     .map((c) => ({ label: c.label, v: c[m.key] }))
     .filter((r) => typeof r.v === "number" && r.v > 0)
     .sort((a, b) => b.v - a.v);
+  const rows = rowsOf(state.catalogShown || state.catalog);
+  const allRows = rowsOf(state.catalog);   // axis max stays unfiltered so a bar keeps its length across filters
   // Size the canvas: fixed row height so the card grows with dataset count.
   const rowH = 30, padTop = 8, padBot = 26;
   canvas.style.height = (rows.length * rowH + padTop + padBot) + "px";
@@ -643,7 +652,7 @@ function drawCatalogBars(metric, animate = true) {
     ctx.fillText("computing…", 8, 20);
     return;
   }
-  const maxV = Math.max(...rows.map((r) => r.v));
+  const maxV = Math.max(...(allRows.length ? allRows : rows).map((r) => r.v));
   const labelW = 168, valW = 92;
   const x0 = labelW, plotW = W - labelW - valW;
   // x gridlines + axis ticks. IMPORTANT: the axis max must be >= maxV, else the
