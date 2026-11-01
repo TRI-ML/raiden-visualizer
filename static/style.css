@@ -394,7 +394,7 @@ select option { background: var(--bg-elev); color: var(--text); }
   display: flex; justify-content: space-between; align-items: center;
   padding: 14px 16px; border-bottom: 1px solid var(--border-soft); gap: 12px;
 }
-.card-head h3 { font-size: var(--fs-small); text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); font-weight: 600; }
+.card-head h3 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text); font-weight: 700; }   /* clearer card heads (user, 2026-10-31) */
 .controls { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: flex-end; }
 
 /* Segmented (eye) */
@@ -621,7 +621,10 @@ select option { background: var(--bg-elev); color: var(--text); }
 
 .cat-grid { display: flex; flex-direction: column; gap: 10px; padding: 16px; }   /* sections stacked inside the Datasets card */
 .cat-section { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; margin-bottom: 14px; }
-.cat-section-title { font-size: var(--fs-small); text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); font-weight: 600; }
+/* section heads (TRI / Open source / Purchased): big, with a rule, so the split is unmistakable */
+.cat-section-title { display: flex; align-items: baseline; gap: 10px; font-size: 20px; font-weight: 700; color: var(--text); letter-spacing: -0.01em;
+  padding: 10px 0 8px; border-bottom: 2px solid var(--border); margin-top: 6px; }
+.cat-section-title .n { font-size: var(--fs-small); font-weight: 500; color: var(--text-dim); font-family: var(--mono); }
 .cat-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius);
   padding: 16px; cursor: pointer; transition: border-color .12s, background .12s, transform .12s; }
 .cat-card:hover { border-color: var(--accent); background: var(--bg-hover); transform: translateY(-2px); }
