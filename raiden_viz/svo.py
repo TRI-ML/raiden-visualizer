@@ -61,7 +61,9 @@ def _extract_h264(svo_path: Path, out_h264: Path) -> int:
     try:
         return _extract_h264_inner(svo_path, out_h264)
     except (McapError, struct.error) as e:
-        n = _FRAMES_SO_FAR.get(out_h264, 0)
+        n = _FRAMES_SO_FAR.pop(out_h264, 0)
+        if not n:
+            out_h264.unlink(missing_ok=True)      # no frames: leave no empty scratch file behind
         if n:
             log.warning("%s: truncated after %d frames (%s: %s)", svo_path.name, n, type(e).__name__, str(e)[:80])
             return n
