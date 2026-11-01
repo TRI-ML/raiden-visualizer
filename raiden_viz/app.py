@@ -182,6 +182,13 @@ def get_catalog():
         # a bare stub on a first build. Overlay the LIVE label/kind from config so a
         # rename shows immediately without wiping the (label-frozen) deep cache.
         base = card or {"id": spec["id"], "building": True}
+        # The card's preview is frozen at build time; if the preview warm finished AFTER the card was built the
+        # card would say "no preview" until a rebuild. Overlay a pick from the (memoized) previews blob instead.
+        if not base.get("preview") and hasattr(src, "previews"):
+            pv = src.previews()
+            if pv:
+                task = next(iter(pv))
+                base = {**base, "preview": {"task": task, **pv[task]}}
         cards.append({**base, "label": spec["label"], "kind": spec["kind"]})
     agg = {
         "num_datasets": len(cards),
