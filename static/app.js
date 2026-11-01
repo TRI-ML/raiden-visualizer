@@ -508,18 +508,36 @@ async function renderCatalog() {
     // "With annotations" tile dropped (user, 2026-11-01)
   ].map(([k, v]) => `<div class="cat-stat"><div class="cat-stat-v">${v}</div><div class="cat-stat-k">${k}</div></div>`).join("");
 
-  grid.innerHTML = "";
-  // two sections (user, 2026-10-31): datasets collected at TRI, then the open-source / purchased ones
-  const sections = [["TRI", (c) => c.origin === "tri"], ["Open source / Purchased", (c) => c.origin !== "tri"]];
-  sections.forEach(([title, pick]) => {
-    const items = data.datasets.filter(pick);
-    if (!items.length) return;
-    const h = el("div", "cat-section-title", title);
-    h.appendChild(el("span", "n", `${items.length} dataset${items.length === 1 ? "" : "s"}`));
-    grid.appendChild(h);
-    const sec = el("div", "cat-section"); grid.appendChild(sec);
-    items.forEach((c) => renderCard(c, sec));
-  });
+  // card area: filter pills + sections; redrawn when a pill is clicked
+  function drawCards() {
+    grid.innerHTML = "";
+    // Embodiment filter pills (user, 2026-11-01: like yam-eval's filters): All + every embodiment present in the catalog.
+    const embs = [...new Set(data.datasets.flatMap((c) => c.embodiments || []))].sort();
+    state.embFilter = state.embFilter || localStorage.getItem("rv_emb") || "";
+    if (state.embFilter && !embs.includes(state.embFilter)) state.embFilter = "";
+    const filt = el("div", "cat-filter");
+    filt.appendChild(el("span", "cat-filter-k", "Embodiment"));
+    [["", "All"], ...embs.map((e) => [e, e])].forEach(([val, label]) => {
+      const b = el("button", "cat-pill" + (state.embFilter === val ? " active" : ""), label);
+      b.type = "button";
+      b.onclick = () => { state.embFilter = val; localStorage.setItem("rv_emb", val); drawCards(); };
+      filt.appendChild(b);
+    });
+    grid.appendChild(filt);
+    const shown = state.embFilter ? data.datasets.filter((c) => (c.embodiments || []).includes(state.embFilter)) : data.datasets;
+    // two sections (user, 2026-10-31): datasets collected at TRI, then the open-source / purchased ones
+    const sections = [["TRI", (c) => c.origin === "tri"], ["Open source / Purchased", (c) => c.origin !== "tri"]];
+    sections.forEach(([title, pick]) => {
+      const items = shown.filter(pick);
+      if (!items.length) return;
+      const h = el("div", "cat-section-title", title);
+      h.appendChild(el("span", "n", `${items.length} dataset${items.length === 1 ? "" : "s"}`));
+      grid.appendChild(h);
+      const sec = el("div", "cat-section"); grid.appendChild(sec);
+      items.forEach((c) => renderCard(c, sec));
+    });
+  }
+  drawCards();
   function renderCard(c, grid) {
     const card = document.createElement("div");
     card.className = "cat-card";
@@ -1090,7 +1108,7 @@ function renderTaskList() {
     // first grid column is always present so the name / bar / count columns line up across rows
     row.appendChild(t.preview ? previewBox(state.source, { task: t.task, ...t.preview }, { label: false }) : el("div", "t-nopv"));
     const name = el("div", "t-name", t.task);
-    if (t.prompt) name.appendChild(el("div", "t-prompt", t.prompt));   // webbed datasets carry a language prompt
+    // the per-task language prompt line (webbed) is not shown in the Tasks list (user, 2026-11-01)
     // per-task tag pills (webbed: bc / dagger / seg48 …) hidden — noise in the Tasks list (user, 2026-11-01)
     row.appendChild(name);
     const bar = el("div", "t-bar");
