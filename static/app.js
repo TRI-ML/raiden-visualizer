@@ -544,7 +544,8 @@ async function renderCatalog() {
       `;   // annotation state lives in the pills row now (user, 2026-10-31: no extra line); only noteworthy states show
     const annPill = building ? '<span class="cat-fmt cat-ann building">computing…</span>'
       : failed ? failBadge(c.error)
-      : c.annotations === "yes" ? '<span class="cat-fmt cat-ann ann-yes">Annotated</span>' : "";
+      : c.annotations === "yes" || (c.annotated_frac || 0) > 0
+        ? `<span class="cat-fmt cat-ann ann-yes">Annotated${c.annotated_frac != null && c.annotated_frac < 0.995 ? ` ${Math.round(c.annotated_frac * 100)} %` : ""}</span>` : "";
     if (annPill) card.querySelector(".cat-pills").insertAdjacentHTML("beforeend", annPill);   // camera list + s3 path hidden on the card (user, 2026-10-31); `cams` kept for the title below
     card.title = `${cams}${c.bucket ? ` · s3://${c.bucket}/${c.prefix ?? ""}` : ""}`;
     // Preview chosen at build time (stored on the card): poster now, clip on hover.
@@ -1051,6 +1052,7 @@ function renderTaskList() {
     bar.appendChild(fill);
     row.appendChild(bar);
     row.appendChild(el("div", "t-count", `${t.episodes} ep`));   // plain episode count (user, 2026-10-31: no "5 of N")
+    row.appendChild(el("div", "t-ann", t.annotated != null ? `${t.annotated} ann` : ""));   // exact label-sidecar count when known
     // Per-task hours — filled in by fillSummaryTiles once /api/stats loads.
     const hrs = el("div", "t-hours", "…");
     hrs.dataset.task = t.task;
@@ -1365,7 +1367,7 @@ function fillSummaryTiles(stats) {
   set("#ov-median-num", s.median_duration_s == null ? "—" : `${s.median_duration_s} s`);
   set("#ov-eptask-num", s.episodes_per_task_median == null ? "—" : String(Math.round(s.episodes_per_task_median)));
   $("#ov-annot-tile").hidden = s.annotated_episodes == null;
-  set("#ov-annot-num", s.annotated_episodes == null ? "—" : s.annotated_episodes.toLocaleString());
+  set("#ov-annot-num", s.annotated_episodes == null ? "—" : (s.annotated_exact || !est ? "" : "~") + s.annotated_episodes.toLocaleString());
   const eps = (stats.episodes || []).filter((e) => e.duration_s != null);
   updatePerTaskHours(eps, stats, est);
 }

@@ -75,7 +75,15 @@ def cheap_card(spec: dict, src) -> dict:
             {"task": t.get("task"), "episodes": t.get("episodes")}
             for t in (ov.get("tasks") or [])[:10]
         ],
+        # exact share of episodes with a label sidecar, when the adapter counted them (ABC-130k: ~33 %)
+        "annotated_frac": _annotated_frac(ov.get("tasks") or []),
     }
+
+
+def _annotated_frac(tasks: list) -> float | None:
+    known = [t for t in tasks if t.get("annotated") is not None]
+    total = sum(t.get("episodes") or 0 for t in known)
+    return round(sum(t["annotated"] for t in known) / total, 3) if known and total else None
 
 
 def _probe_annotations(src, cheap: dict) -> dict:
