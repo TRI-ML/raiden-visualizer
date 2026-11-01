@@ -142,12 +142,21 @@ def summarize(episodes: list, total: int, tasks: list) -> dict:
         estimated = len(episodes) < total
         hours = round((mean_s * total if estimated else sum(durs)) / 3600.0, 1)
     ann = [e.get("has_annotations") for e in episodes]
+    exact = [t.get("annotated") for t in tasks if t.get("annotated") is not None]
+    if exact:
+        annotated = sum(exact)
+    elif any(a is not None for a in ann):
+        n = sum(1 for a in ann if a)
+        annotated = round(n * total / len(episodes)) if episodes and len(episodes) < total else n   # scaled when sampled
+    else:
+        annotated = None
     return {
         "hours": hours, "estimated": estimated,
         "median_duration_s": round(_median(durs), 1) if durs else None,
         "episodes_per_task_median": _median([t.get("episodes") or 0 for t in tasks]) if tasks else None,
         "unique_tasks": len(tasks) if tasks else None,
-        "annotated_episodes": sum(1 for a in ann if a) if any(a is not None for a in ann) else None,
+        "annotated_episodes": annotated,
+        "annotated_exact": bool(exact),
         "embodiments": embodiments(e.get("robot_type") for e in episodes),   # [] when the records carry none
     }
 
@@ -1023,6 +1032,15 @@ class YamMcapSource(Source):
     # are a browsing nicety, not worth paging tens of thousands of keys (ABC-130k's
     # largest task has ~11k episodes) on every task switch.
     FACTS_MAX_EPISODES = 2000
+
+    def task_facts(self, task: str) -> dict:
+        # ABC-130k ships labels as a sibling annotation.mcap for a THIRD of its episodes (train report: 42,980 of
+        # 129,032); count the sidecars exactly from one recursive listing per task. Persisted with the overview,
+        # so it costs ~260 LIST pages once per rebuild. Inline-label sets (XDOF) carry no sidecar → not reported.
+        if not self.spec.get("annotation_sidecar"):
+            return {}
+        n = sum(1 for _ in s3.list_keys(f"{self.prefix}/{task}", bucket=self.bucket, suffix="annotation.mcap"))
+        return {"annotated": n}
 
     def episode_time(self, task: str, episode: str) -> str | None:
         # A HEAD on the MCAP: no download, and its LastModified is the closest

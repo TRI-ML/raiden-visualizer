@@ -54,12 +54,12 @@ SOURCES = [
     # ABC-130k: the full open-source YAM dataset (xdof/Amazon). Same Foxglove-MCAP
     # format as the yam source but with episode.mcap files, newer topic names
     # (/<cam>, -state) and H.265 video — all handled by the yam adapter/decoder.
-    {"id": "abc130k", "origin": "open", "embodiments": ["YAM"], "label": "ABC-130k (train)", "kind": "yam", "bucket": S3_BUCKET,
+    {"id": "abc130k", "origin": "open", "embodiments": ["YAM"], "annotation_sidecar": True, "label": "ABC-130k (train)", "kind": "yam", "bucket": S3_BUCKET,
      "prefix": "vla_foundry_datasets_test/raw_datasets_bot/abc-130k/data/train", "mcap_name": "episode.mcap"},
     # The public yam_public/ABC-130k mirror carries a val split (same episode.mcap
     # layout + content as the train mirror above, 189 tasks) that our train-only
     # source doesn't expose. Same yam adapter.
-    {"id": "abc130k_val", "origin": "open", "embodiments": ["YAM"], "label": "ABC-130k (val)", "kind": "yam", "bucket": S3_BUCKET,
+    {"id": "abc130k_val", "origin": "open", "embodiments": ["YAM"], "annotation_sidecar": True, "label": "ABC-130k (val)", "kind": "yam", "bucket": S3_BUCKET,
      "prefix": "yam_public/ABC-130k/data/val", "mcap_name": "episode.mcap"},
     # The xdof VENDOR bucket copy of the zed collection — carries inline
     # /subtask-annotation labels (which the tri-ml mirror lacks). Readable only via

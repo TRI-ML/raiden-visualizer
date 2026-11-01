@@ -116,7 +116,8 @@ def test_summarize_extrapolates_hours_and_hides_unknown_annotations():
     eps = [{"duration_s": 30.0, "has_annotations": None}, {"duration_s": 90.0, "has_annotations": None}]
     s = sources.summarize(eps, 100, [{"episodes": 60}, {"episodes": 40}])
     assert s == {"hours": round(60.0 * 100 / 3600, 1), "estimated": True, "median_duration_s": 60.0,
-                 "episodes_per_task_median": 50, "unique_tasks": 2, "annotated_episodes": None, "embodiments": []}
+                 "episodes_per_task_median": 50, "unique_tasks": 2, "annotated_episodes": None, "annotated_exact": False,
+                 "embodiments": []}
     assert sources.summarize([], 0, [])["hours"] is None
 
 
@@ -125,3 +126,21 @@ def test_embodiments_map_robot_types_to_labels_and_dedupe():
     assert sources.summarize(eps, 5, [])["embodiments"] == ["ARX", "YAM"]
     assert sources.embodiments(["franka", "weird_bot"]) == ["Franka", "weird_bot"]
     assert sources.STATS_KEY == "stats_v3"
+
+
+def test_summarize_prefers_exact_sidecar_counts_and_scales_sampled_flags():
+    eps = [{"duration_s": 10, "has_annotations": True}, {"duration_s": 10, "has_annotations": False}]
+    # task rows carry the exact annotation.mcap count (ABC-130k): sum them, flag exact
+    s = sources.summarize(eps, 1000, [{"episodes": 600, "annotated": 200}, {"episodes": 400, "annotated": 0}])
+    assert s["annotated_episodes"] == 200 and s["annotated_exact"] is True
+    # no sidecar counts: the sampled share (1 of 2) scaled to the dataset (1000), flagged not exact
+    s = sources.summarize(eps, 1000, [{"episodes": 1000}])
+    assert s["annotated_episodes"] == 500 and s["annotated_exact"] is False
+    # adapter knows nothing: None
+    assert sources.summarize([{"duration_s": 1}], 1, [{"episodes": 1}])["annotated_episodes"] is None
+
+
+def test_annotated_frac_from_task_rows():
+    from raiden_viz import catalog
+    assert catalog._annotated_frac([{"episodes": 60, "annotated": 20}, {"episodes": 40, "annotated": 0}]) == 0.2
+    assert catalog._annotated_frac([{"episodes": 60}]) is None
