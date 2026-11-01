@@ -133,5 +133,7 @@ def test_truncated_svo2_keeps_the_frames_before_the_cut(tmp_path, monkeypatch):
     monkeypatch.setattr(svo, "_extract_h264_inner", cut_after(640))
     assert svo._extract_h264(tmp_path / "x.svo2", tmp_path / "x.h264") == 640
     monkeypatch.setattr(svo, "_extract_h264_inner", cut_after(0))
+    (tmp_path / "y.h264").write_bytes(b"")
     with pytest.raises(ValueError, match="corrupt .svo2"):
         svo._extract_h264(tmp_path / "x.svo2", tmp_path / "y.h264")
+    assert not (tmp_path / "y.h264").exists()    # the empty scratch file is removed
