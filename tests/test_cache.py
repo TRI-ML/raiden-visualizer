@@ -121,3 +121,17 @@ def test_default_still_publishes(cache_dir, remote):
     """Regression guard: the expensive derivatives must keep surviving redeploys."""
     cache.get_or_create("clip.mp4", lambda dst: dst.write_bytes(b"video"))
     assert remote.objects["derived/clip.mp4"] == b"video"
+
+
+def test_scratch_path_is_private_and_evictor_safe(tmp_path):
+    """Decoder intermediates must not share one name per clip (server vs warm CLI raced and unlinked each other)."""
+    import threading
+    from raiden_viz import cache
+    dest = tmp_path / "etag_cam_left.mp4.tmp123_456"
+    p = cache.scratch_path(dest, "h264")
+    assert p.parent == dest.parent and p.name.startswith(dest.name) and p.name.endswith(".h264.tmp")
+    seen = {p.name}
+    threading.Thread(target=lambda: seen.add(cache.scratch_path(dest, "h264").name)).start()
+    import time; time.sleep(0.05)
+    assert len(seen) == 2          # a different thread gets a different file
+    assert ".tmp" in p.name        # the evictor skips names containing .tmp
