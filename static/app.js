@@ -1067,6 +1067,8 @@ const TASK_SORTS = {
 // Tag chips above the Tasks list (sources whose tasks carry tags, e.g. webbed): one click narrows the list.
 function renderTagFilter(list, tags) {
   let box = $("#ov-tag-filter");
+  // the tag chip row (webbed: bimanual / real / robotics / success / tabletop / yam) is gone (user, 2026-11-01)
+  tags = [];
   if (!tags.length) { if (box) box.remove(); state.taskTag = null; return; }
   if (!box) { box = el("div", "tag-filter"); box.id = "ov-tag-filter"; list.parentNode.insertBefore(box, list); }
   box.innerHTML = "";
