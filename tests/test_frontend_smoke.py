@@ -167,6 +167,7 @@ def test_episode_view_renders_camera_grid_and_generic_names(browser, site):
     page.wait_for_selector("#camera-grid .cam-tile")
     assert page.locator("#camera-grid .cam-tile").count() == 2
     assert "put the spoon" in page.locator("#ep-instruction").inner_text()
+    assert "trajector" not in page.locator("body").inner_text().lower()   # the phrase is gone from the UI (user)
     # the sidebar episode rows read "episode 1", not the raw chunk path; the tag filter shows the task's tags
     assert "episode 1" in page.locator("#episode-list li").first.inner_text()
     page.evaluate("applyTheme('dark')")

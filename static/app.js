@@ -2490,7 +2490,7 @@ function renderPlots(robot) {
   state.robotDuration = 0;
   if (!robot || !robot.signals || !Object.keys(robot.signals).length) {
     $("#plot-summary").textContent = "";
-    notAvailable(wrap, "No robot trajectories available for this episode.");
+    notAvailable(wrap, "No state or action signals for this episode.");
     return;
   }
   const s = robot.summary || {};
