@@ -47,6 +47,8 @@ _EEF = {"keys": ["state"], "time": [0.0, 1.0, 2.0],
         "signals": {"state": {"dims": 32, "series": [[0.1 * i] * 3 + [1, 0, 0, 0, 1, 0] + [0.2 * i] * 3 + [1, 0, 0, 0, 1, 0] + [0.5, 0.5] + [0.01 * i] * 12 for i in range(3)],
                               "min": 0.0, "max": 1.0}},
         "summary": {"num_steps": 3, "duration_s": 2.0, "hz": 1.5}}
+_EEF["signals"]["action"] = dict(_EEF["signals"]["state"])
+_EEF["keys"] = ["state", "action"]
 _EEF["joint_legend"] = _emb.joint_legend("webbed", _EEF)
 _EEF["joint_legend"]["layout"] = _emb.layout("webbed", _EEF)
 # episode 3 carries subtask (Argus) labels: {t, text} transitions, as the yam / lerobot adapters emit them
@@ -279,15 +281,19 @@ def test_bimanual_ee_episode_renders_the_arm_grid(browser, site):
     cols = page.evaluate("getComputedStyle(document.querySelector('#plots .plot-grid')).gridTemplateColumns.split(' ').length")
     assert cols == 2
     heads = page.locator("#plots .plot-arm-head").all_inner_texts()
-    assert [h.upper() for h in heads] == ["LEFT ARM", "RIGHT ARM"]
+    assert [h.upper() for h in heads] == ["LEFT ARM", "RIGHT ARM", "LEFT ARM", "RIGHT ARM"]
     titles = page.locator("#plots .plot-title").all_inner_texts()
-    assert any("position" in x for x in titles) and any("rotation" in x and "deg" in x for x in titles)
-    assert any("gripper" in x for x in titles) and any("joints" in x for x in titles)
+    assert any(x.startswith("position") for x in titles) and any(x.startswith("rotation") and "deg" in x for x in titles)
+    assert any(x.startswith("gripper") for x in titles) and any(x.startswith("joints") for x in titles)
+    assert not any("state ·" in x or "action ·" in x for x in titles)
+    # state and action are stacked subsections, each with its own arm grid
+    assert [h.upper() for h in page.locator("#plots .plot-section-head").all_inner_texts()] == ["STATE", "ACTION"]
+    assert page.locator("#plots .plot-grid").count() == 2
     # rotation panel: roll/pitch/yaw legend, raw toggle swaps to the 6 rot6d components
     rot = page.locator("#plots .plot-block", has_text="rotation").first
     assert "roll" in rot.locator(".legend").inner_text()
     rot.locator(".raw-toggle").click()
     assert rot.locator(".legend > span").count() == 6
     page.locator(".plot-card").scroll_into_view_if_needed()
-    page.screenshot(path=str(SHOTS / "rv_traj_split.png"))
+    page.screenshot(path=str(SHOTS / "rv_traj_sections.png"))
     page.close()

@@ -2627,14 +2627,30 @@ function subSignal(sig, idx) {
 // Bimanual EE-pose and joint-space sets: one panel per (arm × quantity), arms side by side so they line up
 // (position / rotation / gripper / joints rows). Rotation panels show roll/pitch/yaw (server-derived from rot6d)
 // with a "raw" toggle for the 6 components. Built from robot.joint_legend.layout (raiden_viz/embodiments.layout).
+// State and action (pos / cmd, follower / leader) are separate subsections, each with the full arm grid.
+function plotSection(key) { return /(^|_)(action|cmd|leader)(_|$)/.test(key) ? "action" : "state"; }
+
 function renderPlotGrid(wrap, t, robot, layout) {
+  const legend = (robot.joint_legend && robot.joint_legend.signals) || {};
+  const sections = [...new Set(layout.map((p) => plotSection(p.raw_key || p.key)))].sort();   // action < state → flip
+  sections.reverse();   // State first, then Action
+  sections.forEach((section, si) => {
+    const panels = layout.filter((p) => plotSection(p.raw_key || p.key) === section);
+    if (sections.length > 1) {
+      const head = el("div", "plot-section-head" + (si ? " next" : ""), section);
+      wrap.appendChild(head);
+    }
+    renderArmGrid(wrap, t, robot, panels, legend);
+  });
+}
+
+function renderArmGrid(wrap, t, robot, layout, legend) {
   const arms = [...new Set(layout.map((p) => p.arm))].sort((a, b) => ({ left: 0, "": 1, right: 2 }[a] - { left: 0, "": 1, right: 2 }[b]));
   const grid = el("div", "plot-grid");
   grid.style.gridTemplateColumns = `repeat(${arms.length}, minmax(0, 1fr))`;
   wrap.appendChild(grid);
   if (arms.length > 1) arms.forEach((a) => grid.appendChild(el("div", "plot-arm-head", a ? `${a} arm` : "")));
   const rows = [...new Set(layout.map((p) => p.row))];
-  const legend = (robot.joint_legend && robot.joint_legend.signals) || {};
   rows.forEach((row) => {
     arms.forEach((arm) => {
       const cell = el("div", "plot-cell");
@@ -2645,7 +2661,7 @@ function renderPlotGrid(wrap, t, robot, layout) {
         const axesInfo = (legend[p.key] || []).filter((a) => p.idx.includes(a.i));
         const block = el("div", "plot-block");
         const title = el("div", "plot-title");
-        const name = el("span", null, `${prettySignal(p.raw_key || p.key)} · ${row}`);
+        const name = el("span", null, row);
         const units = [...new Set((p.raw_key ? [] : axesInfo).map((a) => a.unit).filter(Boolean))];
         name.appendChild(el("span", "unit", p.raw_key ? "deg" : (units.length === 1 ? units[0] : "")));
         title.appendChild(name);
@@ -2745,9 +2761,15 @@ function renderPlotHelp(robot) {
     const b = el("b", null, k + ": "); meta.appendChild(b); meta.appendChild(document.createTextNode(v + "  "));
   });
   pop.appendChild(meta);
-  const panels = lg.layout && lg.layout.length
-    ? lg.layout.map((p) => ({ title: `${prettySignal(p.raw_key || p.key)} · ${p.label}`, key: p.raw_key || p.key, idx: p.raw_idx || p.idx }))
-    : Object.keys(robot.signals || {}).sort(plotPriority).map((key) => ({ title: prettySignal(key), key, idx: null }));
+  let panels;
+  if (lg.layout && lg.layout.length) {
+    const secs = [...new Set(lg.layout.map((p) => plotSection(p.raw_key || p.key)))].sort().reverse();
+    panels = [];
+    secs.forEach((s) => lg.layout.filter((p) => plotSection(p.raw_key || p.key) === s).forEach((p) =>
+      panels.push({ title: secs.length > 1 ? `${s} · ${p.label}` : p.label, key: p.raw_key || p.key, idx: p.raw_idx || p.idx })));
+  } else {
+    panels = Object.keys(robot.signals || {}).sort(plotPriority).map((key) => ({ title: prettySignal(key), key, idx: null }));
+  }
   panels.forEach(({ title, key, idx }) => {
     const all = lg.signals[key]; if (!all || !all.length) return;
     const ax = idx ? all.filter((a) => idx.includes(a.i)) : all;
