@@ -382,7 +382,8 @@ select option { background: var(--bg-elev); color: var(--text); }
 .lang-seg:hover { opacity: 0.8; }
 .lang-seg.active { opacity: 1; box-shadow: inset 0 0 0 2px var(--text); }
 .lang-head { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--text); pointer-events: none; }
-.lang-card { grid-column: 1 / -1; }
+/* the language list is part of the camera card now: full card width, a hairline above, no own chrome */
+.lang-card { border-top: 1px solid var(--border-soft); }
 .lang-list { max-height: 220px; overflow-y: auto; padding: 4px 16px 10px; }
 .lang-row { display: flex; align-items: center; gap: 12px; padding: 6px 6px; border-bottom: 1px solid var(--border-soft); font-size: var(--fs-small); color: var(--text-dim); cursor: pointer; border-radius: 6px; }
 .lang-row:last-child { border-bottom: none; }
