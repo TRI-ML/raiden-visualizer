@@ -25,7 +25,7 @@ def _repos_for(spec: dict, task: str) -> list[str]:
     at 53 characters and split some big tasks over two repos, so a truncated suffix matches by prefix of the task."""
     a = spec["argus"]
     if a.get("repo"):
-        return [a["repo"]]
+        return [a["repo"].format(task=task)]   # "{task}" when the label repo is named after the task folder (RealOmni, DROID)
     sid = spec["id"]
     with _lock:
         m = _repos.get(sid)

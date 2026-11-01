@@ -123,7 +123,8 @@ def _median(xs):
 
 # LeRobot info.json robot_type → readable embodiment label (unknown values show as is)
 EMBODIMENT_LABEL = {"yam": "YAM", "bi_yam_follower": "YAM", "yam_bimanual": "YAM", "arx": "ARX", "franka": "Franka",
-                    "hand": "Hand"}
+                    "franka_panda": "Franka", "dual_franka_panda": "Franka (bimanual)", "umi_bimanual": "UMI (bimanual)",
+                    "agibot_g2a": "AgiBot G2", "agibot_a2d": "AgiBot A2D", "hand": "Hand"}
 
 
 def embodiments(robot_types) -> list:

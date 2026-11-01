@@ -38,3 +38,10 @@ def test_join_by_stem_and_by_index_only_sol_subtasks(monkeypatch, tmp_path):
     assert argus.annotations_for(molmo, "any task", "episode_000000")[0]["text"] == "reach"
     assert argus.coverage(molmo, "any task", ["episode_000000", "episode_000001", "episode_000009"]) == 1
     assert argus.annotations_for({"id": "x"}, "t", "e") == [] and argus.coverage({"id": "x"}, "t", []) is None
+
+
+def test_repo_template_names_the_task_folder():
+    from raiden_viz import argus
+    spec = {"id": "x", "argus": {"tables": "t", "repo": "{task}", "join": "index"}}
+    assert argus._repos_for(spec, "realomin_s2") == ["realomin_s2"]
+    assert argus._repos_for({"id": "y", "argus": {"tables": "t", "repo": "molmo_yam_v3"}}, "any") == ["molmo_yam_v3"]
