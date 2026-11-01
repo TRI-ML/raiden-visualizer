@@ -32,7 +32,8 @@ SOURCES = [
     # raiden .svo2 layout (metadata.json + cameras/*.svo2 + robot_data.npz);
     # metadata.json carries an extra rollout_info block that the raiden adapter
     # ignores. See raiden-rfm-flow-policy work.
-    {"id": "rollouts", "origin": "tri", "embodiments": ["YAM"], "label": "Raiden Rollouts", "kind": "raiden", "bucket": S3_BUCKET, "prefix": "raiden_datasets/rollouts"},
+    # Raiden Rollouts (raiden_datasets/rollouts, 2 episodes) removed from the viewer (user, 2026-10-31); keep for reference
+    # {"id": "rollouts", "origin": "tri", "embodiments": ["YAM"], "label": "Raiden Rollouts", "kind": "raiden", "bucket": S3_BUCKET, "prefix": "raiden_datasets/rollouts"},
     # yam-eval policy rollouts (recorded by the yam-robot vibe daemon, uploaded by the eval console): the raiden
     # layout nested under <run>_<step>/<task>/rollout_NNNN (Vibe) and <formal_id>/<run>_<step>/<task>/rollout_NNNN
     # (ranked evals, yam-eval PR #368); `depth` = dir levels above <task>. metadata.json carries rollout_info,
@@ -81,7 +82,7 @@ SOURCES = [
     # ONE EPISODE PER VIDEO FILE — so the adapter's stream-copy fast path applies and
     # no episode is ever transcoded. Folders without a lerobot/ subdir (part files that
     # keep only their card) are skipped by list_tasks.
-    {"id": "yam_sim", "origin": "tri", "embodiments": ["YAM"], "label": "YAM Sim (Isaac twin)", "kind": "lerobot",
+    {"id": "yam_sim", "prod": False, "origin": "tri", "embodiments": ["YAM"], "label": "YAM Sim (Isaac twin)", "kind": "lerobot",
      "bucket": "tri-yam", "prefix": "sim_datasets", "subdir": "lerobot"},
 ]
 
