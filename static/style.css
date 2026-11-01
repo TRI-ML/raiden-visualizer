@@ -652,6 +652,7 @@ select option { background: var(--bg-elev); color: var(--text); }
 .cat-badge.ann-yes { background: var(--good-soft); color: var(--good); }
 .cat-fmt.cat-ann.ann-yes { color: var(--good); border-color: var(--good-soft); background: var(--good-soft); }
 .cat-fmt.cat-ann.building { color: var(--accent); }
+.cat-fmt.cat-ann.argus { color: var(--accent); border-color: var(--accent-soft); background: var(--accent-soft); }
 .cat-badge.ann-none { background: var(--bg-elev); color: var(--text-dim); border: 1px solid var(--border); }
 .cat-badge.ann-na { background: var(--bg-elev); color: var(--text-faint); border: 1px solid var(--border-soft); }
 .cat-badge.building { background: var(--accent-soft); color: var(--accent); }
