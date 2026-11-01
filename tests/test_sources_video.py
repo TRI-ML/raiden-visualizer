@@ -107,3 +107,12 @@ def test_raiden_traces_are_built_once_and_served_from_the_blob(monkeypatch, tmp_
     d2 = src.episode_detail("T", "e")
     assert d1["robot"] == {"keys": []} and d2["robot"] == {"keys": []}
     assert calls == ["summarize"] and list(store) == ["raiden_traces_abc_nocalib_v1.json"]
+
+
+def test_corrupt_svo2_is_a_value_error_not_a_crash(tmp_path):
+    """A recording cut off mid-write (BimanualTest/0000) must reach the UI as 422 'no video', not a 500."""
+    from raiden_viz import svo
+    bad = tmp_path / "scene_camera.svo2"
+    bad.write_bytes(b"\x89MCAP0\r\n" + b"\x18" + (2**40).to_bytes(8, "little") + b"garbage" * 64)
+    with pytest.raises(ValueError, match="corrupt .svo2"):
+        svo._extract_h264(bad, tmp_path / "out.h264")

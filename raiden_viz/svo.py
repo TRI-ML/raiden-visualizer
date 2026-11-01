@@ -14,6 +14,7 @@ import struct
 import subprocess
 from pathlib import Path
 
+from mcap.exceptions import McapError
 from mcap.reader import make_reader
 
 from . import config
@@ -48,6 +49,15 @@ def probe_channels(svo_path: Path) -> dict:
 
 def _extract_h264(svo_path: Path, out_h264: Path) -> int:
     """Write the concatenated H.264 elementary stream; return frame count."""
+    try:
+        return _extract_h264_inner(svo_path, out_h264)
+    except McapError as e:
+        # a recording cut off mid-write (e.g. BimanualTest/0000): a ValueError reaches the UI as 422 "no video"
+        # instead of a 500, and the preview warm moves on to the next episode
+        raise ValueError(f"corrupt .svo2 recording ({type(e).__name__}): {str(e)[:120]}") from e
+
+
+def _extract_h264_inner(svo_path: Path, out_h264: Path) -> int:
     n = 0
     with open(svo_path, "rb") as f, open(out_h264, "wb") as out:
         for _schema, channel, message in make_reader(f).iter_messages():
