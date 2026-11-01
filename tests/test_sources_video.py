@@ -91,7 +91,7 @@ def test_raiden_detail_tolerates_a_missing_metadata_json(monkeypatch):
 
 def test_raiden_traces_are_built_once_and_served_from_the_blob(monkeypatch, tmp_path):
     """The npz summary + FK traces are the slow part of a raiden episode page; they are cached by npz etag."""
-    from raiden_viz import cache, robot_data, s3, sources
+    from raiden_viz import robot_data, s3, sources
     src = sources.RaidenSource({"id": "r", "label": "R", "kind": "raiden", "bucket": "b", "prefix": "p"})
     npz_obj = s3.S3Object(key="p/T/e/robot_data.npz", size=10, etag="abc")
     monkeypatch.setattr(sources.s3, "try_head", lambda key, bucket=None: npz_obj if key.endswith("robot_data.npz") else None)
@@ -116,3 +116,22 @@ def test_corrupt_svo2_is_a_value_error_not_a_crash(tmp_path):
     bad.write_bytes(b"\x89MCAP0\r\n" + b"\x18" + (2**40).to_bytes(8, "little") + b"garbage" * 64)
     with pytest.raises(ValueError, match="corrupt .svo2"):
         svo._extract_h264(bad, tmp_path / "out.h264")
+
+
+def test_truncated_svo2_keeps_the_frames_before_the_cut(tmp_path, monkeypatch):
+    """The MCAP reader surfaces a cut-off record as struct.error: frames read so far are kept; none at all → 422."""
+    import struct
+
+    from raiden_viz import svo
+
+    def cut_after(n):
+        def inner(svo_path, out):
+            if n:
+                svo._FRAMES_SO_FAR[out] = n
+            raise struct.error("unpack requires a buffer of 8 bytes")
+        return inner
+    monkeypatch.setattr(svo, "_extract_h264_inner", cut_after(640))
+    assert svo._extract_h264(tmp_path / "x.svo2", tmp_path / "x.h264") == 640
+    monkeypatch.setattr(svo, "_extract_h264_inner", cut_after(0))
+    with pytest.raises(ValueError, match="corrupt .svo2"):
+        svo._extract_h264(tmp_path / "x.svo2", tmp_path / "y.h264")

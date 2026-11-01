@@ -10,6 +10,7 @@ We concatenate the H.264 payloads across frames, hand the raw elementary
 stream to ffmpeg, crop to a single eye, and mux to MP4. No proprietary SDK.
 """
 
+import logging
 import struct
 import subprocess
 from pathlib import Path
@@ -17,11 +18,12 @@ from pathlib import Path
 from mcap.exceptions import McapError
 from mcap.reader import make_reader
 
-from . import cache
 
-from . import config
+from . import cache, config
 
 # Header layout of each side_by_side message payload.
+log = logging.getLogger("raiden_viz")
+
 _HDR = struct.Struct("<II")  # (total_len, h264_len)
 
 EYES = ("left", "right")
@@ -50,13 +52,23 @@ def probe_channels(svo_path: Path) -> dict:
 
 
 def _extract_h264(svo_path: Path, out_h264: Path) -> int:
-    """Write the concatenated H.264 elementary stream; return frame count."""
+    """Write the concatenated H.264 elementary stream; return frame count.
+
+    A recording cut off mid-write (the console's recorder was stopped or the upload ended early) leaves a short or
+    oversized final record; the MCAP reader raises McapError or struct.error there. Frames read before that point
+    are kept — a clip missing its last second beats no clip — and only a stream with no frames at all is an
+    error, as ValueError so the UI shows 422 "no video" and the preview warm moves on."""
     try:
         return _extract_h264_inner(svo_path, out_h264)
-    except McapError as e:
-        # a recording cut off mid-write (e.g. BimanualTest/0000): a ValueError reaches the UI as 422 "no video"
-        # instead of a 500, and the preview warm moves on to the next episode
+    except (McapError, struct.error) as e:
+        n = _FRAMES_SO_FAR.get(out_h264, 0)
+        if n:
+            log.warning("%s: truncated after %d frames (%s: %s)", svo_path.name, n, type(e).__name__, str(e)[:80])
+            return n
         raise ValueError(f"corrupt .svo2 recording ({type(e).__name__}): {str(e)[:120]}") from e
+
+
+_FRAMES_SO_FAR: dict = {}   # out_h264 -> frames written, so a truncated read can still report what it kept
 
 
 def _extract_h264_inner(svo_path: Path, out_h264: Path) -> int:
@@ -73,6 +85,8 @@ def _extract_h264_inner(svo_path: Path, out_h264: Path) -> int:
             # side-channel data that would trip the decoder if included).
             out.write(data[_HDR.size : _HDR.size + h264_len])
             n += 1
+            _FRAMES_SO_FAR[out_h264] = n
+    _FRAMES_SO_FAR.pop(out_h264, None)
     return n
 
 
