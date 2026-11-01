@@ -313,7 +313,8 @@ function decodeHint() {
 // One overlay for every video tile: thin spinner + a short state word. States:
 // "Loading" (resolving), "Preparing…" (the server is really decoding),
 // "Unavailable" (+ reason). set() swaps text in place, so nothing flashes.
-function tileOverlay(initial = "Loading") {
+// Quiet while a clip loads or decodes: just the spinner, no words (user, 2026-11-01). Text only on failure.
+function tileOverlay(initial = "") {
   const overlay = el("div", "cam-overlay");
   const spin = el("div", "spinner");
   const msg = el("div", "cam-msg", initial);
@@ -324,7 +325,7 @@ function tileOverlay(initial = "Loading") {
   return {
     el: overlay,
     set(text, subText = "") { msg.textContent = text; sub.textContent = subText; },
-    preparing() { this.set("Preparing…", decodeHint()); },
+    preparing() { this.set("", ""); },   // decodeHint() kept for the tooltip only
     fail(reason) {
       overlay.classList.add("err");
       spin.remove();
