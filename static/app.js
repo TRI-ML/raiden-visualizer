@@ -1007,10 +1007,26 @@ async function renderOverview() {
     state.numTasks = ov.num_tasks;
     renderTaskList();
     loadTaskTeachers();   // reveals the robot-teacher filter when its scan is ready
+    renderConvention(ov.state_convention);
     renderAnalytics(ov.tasks.map((t) => t.task));
   } catch (e) {
     toast("Failed to load overview: " + e.message);
   }
+}
+
+// "State convention" card: one line, expandable to frame / action / rate / where it is documented.
+function renderConvention(c) {
+  const card = $("#ov-convention");
+  if (!c) { card.hidden = true; return; }
+  card.hidden = false;
+  $("#conv-summary").textContent = c.summary;
+  const body = $("#conv-body");
+  body.innerHTML = "";
+  [["Frame", c.frame], ["Action", c.action], ["Rate", c.rate], ["Sources", (c.docs || []).join(" · ")]].forEach(([k, v]) => {
+    if (!v) return;
+    body.appendChild(el("dt", null, k));
+    body.appendChild(el("dd", k === "Sources" ? "docs" : null, v));
+  });
 }
 
 /* ---------------- Overview: per-task breakdown ---------------- */
@@ -2520,6 +2536,7 @@ function renderPlots(robot) {
   wrap.innerHTML = "";
   state.plots = [];
   state.robotDuration = 0;
+  renderPlotHelp(robot);
   if (!robot || !robot.signals || !Object.keys(robot.signals).length) {
     $("#plot-summary").textContent = "";
     notAvailable(wrap, "No robot trajectories available for this episode.");
@@ -2540,7 +2557,11 @@ function renderPlots(robot) {
     if (!sig.series || !sig.series.length) return;
     const block = el("div", "plot-block");
     const title = el("div", "plot-title");
-    title.appendChild(el("span", null, prettySignal(key)));
+    const axesInfo = (robot.joint_legend && robot.joint_legend.signals && robot.joint_legend.signals[key]) || [];
+    const units = [...new Set(axesInfo.map((a) => a.unit).filter(Boolean))];
+    const name = el("span", null, prettySignal(key));
+    if (units.length === 1) name.appendChild(el("span", "unit", units[0]));
+    title.appendChild(name);
     title.appendChild(el("span", "range", `[${sig.min}, ${sig.max}]`));
     block.appendChild(title);
 
@@ -2551,7 +2572,7 @@ function renderPlots(robot) {
     wrapC.appendChild(series);
     wrapC.appendChild(cursor);
     block.appendChild(wrapC);
-    if (sig.dims > 1) block.appendChild(makeLegend(sig.dims));
+    if (sig.dims > 1) block.appendChild(makeLegend(sig.dims, axesInfo));
     wrap.appendChild(block);
 
     // defer draw so canvases have layout dimensions
@@ -2613,17 +2634,57 @@ function prettySignal(k) {
     .replace(/_/g, " ");
 }
 
-function makeLegend(dims) {
+// Series legend: the axis's short name when the legend knows it and the row stays readable (≤ 8 series);
+// the bare index otherwise. The full table is behind the card's ? button.
+function makeLegend(dims, axesInfo = []) {
   const leg = el("div", "legend");
+  const useNames = dims <= 8 && axesInfo.length === dims && axesInfo.every((a) => a.name && !/^dim \d+$/.test(a.name));
   for (let i = 0; i < dims; i++) {
     const s = el("span");
     const sw = el("i");
     sw.style.background = PALETTE[i % PALETTE.length];
     s.appendChild(sw);
-    s.appendChild(el("span", null, `${i}`));
+    const label = useNames ? axesInfo[i].name.replace(/^(left|right) /, "") : `${i}`;
+    s.appendChild(el("span", null, label));
+    if (useNames) s.title = `${i}: ${axesInfo[i].meaning}`;
     leg.appendChild(s);
   }
   return leg;
+}
+
+// The ? on the trajectories card: one popover with the dataset's convention and, per plotted signal, the
+// index → name / meaning / unit table (built server-side in raiden_viz/embodiments.py).
+function renderPlotHelp(robot) {
+  const btn = $("#plot-help"), pop = $("#plot-help-pop");
+  const lg = robot && robot.joint_legend;
+  pop.hidden = true; btn.setAttribute("aria-expanded", "false");
+  if (!lg) { btn.hidden = true; return; }
+  btn.hidden = false;
+  pop.innerHTML = "";
+  pop.appendChild(el("p", "hp-sum", lg.summary));
+  const meta = el("p", "hp-meta");
+  [["Frame", lg.frame], ["Action", lg.action], ["Rate", lg.rate]].forEach(([k, v]) => {
+    if (!v) return;
+    const b = el("b", null, k + ": "); meta.appendChild(b); meta.appendChild(document.createTextNode(v + "  "));
+  });
+  pop.appendChild(meta);
+  const order = Object.keys(robot.signals || {}).sort(plotPriority);
+  order.forEach((key) => {
+    const ax = lg.signals[key]; if (!ax || !ax.length) return;
+    pop.appendChild(el("h4", null, prettySignal(key)));
+    const tb = el("table");
+    ax.forEach((a) => {
+      const tr = el("tr");
+      tr.appendChild(el("td", "i", String(a.i)));
+      tr.appendChild(el("td", "n", a.name));
+      tr.appendChild(el("td", null, a.meaning + (a.range ? ` · range ${a.range[0]} … ${a.range[1]}` : "")));
+      tr.appendChild(el("td", "u", a.unit || ""));
+      tb.appendChild(tr);
+    });
+    pop.appendChild(tb);
+  });
+  if (lg.docs && lg.docs.length) pop.appendChild(el("div", "hp-docs", "Sources: " + lg.docs.join(" · ")));
+  btn.onclick = () => { pop.hidden = !pop.hidden; btn.setAttribute("aria-expanded", String(!pop.hidden)); };
 }
 
 function drawSeries(canvas, t, sig) {

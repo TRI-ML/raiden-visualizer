@@ -31,6 +31,16 @@ TASK = {"task": "kitchen_put_spoon_seg48", "episodes": 2, "featured": 2, "prompt
 DETAIL = {"task": TASK["task"], "episode": "chunk_000__episode_000001", "instruction": "put the spoon in the drawer", "status": None,
           "cameras": [{"name": "cam_high", "has_video": True, "eyes": ["left"]}, {"name": "cam_left_wrist", "has_video": True, "eyes": ["left"]}],
           "robot": None, "metadata": {"duration_s": 16.1}, "shard_bounds_s": [1.5, 3.0], "calibration": None, "annotations": []}
+# a YAM-style trajectory block with its server-built legend (raiden_viz.embodiments.joint_legend)
+from raiden_viz import embodiments as _emb
+
+_ROBOT = {"keys": ["follower_l_joint_pos", "follower_l_gripper_pos"], "time": [0.0, 1.0, 2.0],
+          "signals": {"follower_l_joint_pos": {"dims": 6, "series": [[0.1 * i] * 6 for i in range(3)], "min": 0.0, "max": 0.2},
+                      "follower_l_gripper_pos": {"dims": 1, "series": [[0.0], [0.5], [1.0]], "min": 0.0, "max": 1.0}},
+          "summary": {"num_steps": 3, "duration_s": 2.0, "hz": 1.5}}
+_ROBOT["joint_legend"] = _emb.joint_legend("raiden", _ROBOT)
+DETAIL["robot"] = _ROBOT
+CONVENTION = _emb.convention("raiden")
 # episode 3 carries subtask (Argus) labels: {t, text} transitions, as the yam / lerobot adapters emit them
 ANNOTATED = {**DETAIL, "episode": "chunk_000__episode_000003",
              "annotations": [{"t": 0.5, "text": "reach for the spoon"}, {"t": 6.0, "text": "grasp the spoon"},
@@ -46,7 +56,8 @@ def _route(route):
     elif path in ("api/contrib", "api/raiden_teachers"): return route.fulfill(status=404, body="{}")
     elif path == "api/sources/demo/stats": body = STATS
     elif path == "api/sources/demo/tasks": body = {"tasks": [TASK["task"]]}
-    elif path == "api/sources/demo/overview": body = {"bucket": "b", "prefix": "p", "region": "us-west-2", "num_episodes": 2, "num_tasks": 1, "tasks": [TASK], "stations": []}
+    elif path == "api/sources/demo/overview": body = {"bucket": "b", "prefix": "p", "region": "us-west-2", "num_episodes": 2, "num_tasks": 1, "tasks": [TASK], "stations": [],
+                                                       "state_convention": CONVENTION}
     elif path.endswith("/episodes"): body = {"episodes": ["chunk_000__episode_000001", "chunk_000__episode_000003"], "total": 2, "featured": False}
     elif path.endswith("/episode-facts"): body = {"facts": {}}
     elif path.endswith("/episodes/chunk_000__episode_000001"): body = DETAIL
@@ -71,7 +82,7 @@ def browser():
     with pw.sync_playwright() as p:
         try:
             b = p.chromium.launch()
-        except Exception as e:  # noqa: BLE001 - no Chromium bundle on this box
+        except Exception as e:
             pytest.skip(f"chromium not available: {e}")
         yield b
         b.close()
@@ -221,4 +232,34 @@ def test_tab_icon_is_wired(browser, site):
     page.wait_for_selector(".cat-card")
     assert page.locator('link[rel="icon"][type="image/svg+xml"]').count() == 1
     assert page.request.get(f"{site}/favicon.svg").status == 200
+    page.close()
+
+
+def test_axis_legend_popover_and_convention_card(browser, site):
+    # overview: the one-line state convention, expandable
+    page = _open(browser, site, hash_="#demo/kitchen_put_spoon_seg48")
+    page.wait_for_selector("#ov-convention:not([hidden])")
+    assert page.locator("#conv-summary").inner_text().startswith("Joint space")
+    page.click("#ov-convention summary")
+    assert "FRAME" in page.locator("#conv-body").inner_text().upper()
+    # episode: no "Robot trajectories" title; the ? lists every axis of the plotted signals
+    page.close()
+    page = _open(browser, site, hash_="#demo/kitchen_put_spoon_seg48/chunk_000__episode_000001")
+    page.wait_for_selector("#plots .plot-block")
+    assert page.locator(".plot-card h3").count() == 0
+    assert "3 steps" in page.locator("#plot-summary").inner_text()
+    assert page.locator("#plot-help-pop").is_hidden()
+    page.click("#plot-help")
+    page.wait_for_selector("#plot-help-pop:not([hidden])")
+    assert page.locator("#plot-help-pop table").count() == 2          # gripper (1 row) + joints (6 rows)
+    assert page.locator("#plot-help-pop table tr").count() == 7
+    joints = page.locator("#plot-help-pop table").nth(1).locator("tr")
+    assert joints.count() == 6 and "joint1" in joints.nth(0).inner_text() and "rad" in joints.nth(0).inner_text()
+    assert "0 = closed" in page.locator("#plot-help-pop").inner_text()
+    # series legend shows the short joint names, the title the unit
+    assert "joint1" in page.locator("#plots .legend").first.inner_text()
+    titles = page.locator("#plots .plot-title")
+    assert "0–1" in titles.nth(0).inner_text() and "rad" in titles.nth(1).inner_text()   # gripper first, then joints
+    page.locator(".plot-card").scroll_into_view_if_needed()
+    page.screenshot(path=str(SHOTS / "rv_joint_help.png"))
     page.close()
