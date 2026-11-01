@@ -229,18 +229,23 @@ select option { background: var(--bg-elev); color: var(--text); }
 
 /* ---------- Main ---------- */
 #main { flex: 1; height: 100vh; overflow-y: auto; }
-/* the only loading indicator: a 2 px accent bar pinned to the top of the main pane while a request is in flight */
-/* Loading indicator (user, 2026-11-01: "I don't see anything"): a fixed 3 px accent bar across the top of the main pane
-   (not sticky inside the scroller, which scrolled out of view) plus a small spinner after the wordmark. */
-#main::before { content: ""; position: fixed; top: 0; left: var(--sidebar-w, 300px); right: 0; z-index: 50; height: 3px;
-  background: linear-gradient(90deg, transparent 0%, var(--accent) 30%, var(--accent) 70%, transparent 100%);
-  background-size: 40% 100%; background-repeat: no-repeat; opacity: 0; transition: opacity 0.15s; pointer-events: none; }
-html.busy #main::before { opacity: 1; animation: busy-bar 1.1s linear infinite; }
+/* Loading indicators (user, 2026-11-01): the small spinner after the wordmark for any request, and the centred
+   overlay over the main pane (spinner, "Loading", time estimate) for catalog / overview / episode loads that run past
+   250 ms. The old top bar was redundant and is gone. */
 .wordmark::after { content: ""; display: inline-block; width: 0.8em; height: 0.8em; margin-left: 0.5em; vertical-align: -0.1em; border-radius: 50%;
   border: 2px solid var(--accent); border-right-color: transparent; opacity: 0; transition: opacity 0.15s; }
 html.busy .wordmark::after { opacity: 1; animation: spin 0.8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
-@keyframes busy-bar { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+.load-overlay { position: fixed; top: 0; right: 0; bottom: 0; left: var(--sidebar-w, 300px); z-index: 60; pointer-events: none;
+  display: flex; align-items: center; justify-content: center; transition: opacity 0.15s; }
+.load-overlay.hidden { display: none; }
+.load-overlay.out { opacity: 0; }
+.lo-backdrop { position: absolute; inset: 0; background: var(--bg); opacity: 0.55; backdrop-filter: blur(2px); }
+.lo-card { position: relative; display: flex; flex-direction: column; align-items: center; gap: 12px; color: var(--text); }
+.lo-spin { width: 40px; height: 40px; border-width: 3px; }
+.lo-word { font-size: 16px; font-weight: 600; letter-spacing: 0.01em; }
+.lo-est { font-size: var(--fs-small); color: var(--text-dim); font-family: var(--mono); min-height: 1.2em; }
+body.catalog-mode .load-overlay { left: var(--sidebar-w, 300px); }
 
 /* Overview / landing page */
 #overview-view { padding: 26px 30px 60px; max-width: 1100px; margin: 0 auto; }

@@ -75,13 +75,69 @@ function initEnv() {
   };
 }
 
-// Requests in flight light the slim bar at the top of the main pane (html.busy); nothing else animates while loading.
+// ---- loading overlay (user, 2026-11-01: "show the word Loading in the middle, with the circle, and a time estimate") ----
+// Tracked requests (catalog, a source's overview, an episode detail) record their durations per kind in localStorage;
+// a request still running after 250 ms shows the overlay over the main pane with "usually ~N s" (median of the last 8),
+// switching to a live elapsed count once it runs past the estimate. Previous content stays visible beneath it.
+const LOAD_HISTORY_KEY = "rv_load_ms", LOAD_HISTORY_N = 8, LOAD_SHOW_AFTER_MS = 250;
+const DECODES_ON_DEMAND = new Set(["raiden", "raiden_rollouts", "yam", "webbed"]);   // first load may transcode
+function loadKind(path) {
+  if (path === "/api/catalog") return "catalog";
+  if (path.endsWith("/overview")) return `overview:${state.source}`;
+  if (/\/episodes\/[^/?]+$/.test(path)) return `detail:${sourceKind()}`;
+  return null;
+}
+function loadHistory() { try { return JSON.parse(localStorage.getItem(LOAD_HISTORY_KEY)) || {}; } catch (_) { return {}; } }
+function loadEstimateMs(kind) {
+  const xs = (loadHistory()[kind] || []).slice().sort((a, b) => a - b);
+  return xs.length ? xs[Math.floor(xs.length / 2)] : null;
+}
+function recordLoad(kind, ms) {
+  const h = loadHistory(); h[kind] = [...(h[kind] || []), ms].slice(-LOAD_HISTORY_N);
+  try { localStorage.setItem(LOAD_HISTORY_KEY, JSON.stringify(h)); } catch (_) {}
+}
+const fmtS = (ms) => (ms < 10000 ? (ms / 1000).toFixed(1) : String(Math.round(ms / 1000))) + " s";
+const loadOverlay = { active: 0, timer: null, tick: null, t0: 0, kind: null,
+  start(kind) {
+    this.active++;
+    if (this.active > 1) return;                      // the first tracked request owns the overlay
+    this.kind = kind; this.t0 = performance.now();
+    clearTimeout(this.timer);
+    this.timer = setTimeout(() => this.show(), LOAD_SHOW_AFTER_MS);
+  },
+  show() {
+    const el = $("#load-overlay"); if (!el) return;
+    el.classList.remove("hidden", "out");
+    const est = loadEstimateMs(this.kind), line = $("#lo-est");
+    const paint = () => {
+      const elapsed = performance.now() - this.t0;
+      if (est == null) line.textContent = DECODES_ON_DEMAND.has(sourceKind()) || this.kind === "catalog" ? "first load may take a while" : "";
+      else if (elapsed <= est * 1.25) line.textContent = `usually ~${fmtS(est)}`;
+      else line.textContent = `${Math.max(1, Math.round(elapsed / 1000))} s…`;
+    };
+    paint(); clearInterval(this.tick); this.tick = setInterval(paint, 500);
+  },
+  end(kind, ms) {
+    recordLoad(kind, ms);
+    if (--this.active > 0) return;
+    clearTimeout(this.timer); clearInterval(this.tick);
+    const el = $("#load-overlay");
+    if (el && !el.classList.contains("hidden")) { el.classList.add("out"); setTimeout(() => el.classList.add("hidden"), 150); }
+  },
+};
+
+// Requests in flight: html.busy (the small spinner after the wordmark) for all; the overlay for tracked kinds.
 let _inflight = 0;
 async function api(path) {
   _inflight++; document.documentElement.classList.add("busy");
+  const kind = loadKind(path), t0 = performance.now();
+  if (kind) loadOverlay.start(kind);
   let r;
   try { r = await fetch(path); }
-  finally { if (--_inflight === 0) document.documentElement.classList.remove("busy"); }
+  finally {
+    if (--_inflight === 0) document.documentElement.classList.remove("busy");
+    if (kind) loadOverlay.end(kind, performance.now() - t0);
+  }
   if (!r.ok) {
     let msg = `${r.status}`;
     try { msg = (await r.json()).error || (await r.json()).detail || msg; } catch (_) {}
