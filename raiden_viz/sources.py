@@ -17,7 +17,6 @@ YamMcapSource: <prefix>/<task>/episode_<uuid>/output.mcap  (one Foxglove-protobu
 """
 
 import hashlib
-import json
 import os
 import random
 import re
@@ -1091,13 +1090,13 @@ class YamMcapSource(Source):
 
         Subtask annotations may live in a sibling ``annotation.mcap`` (ABC-130k,
         annotated episodes only); when present it's merged into ``annotations``."""
-        meta_json = cache.path_for(f"yam_{obj.etag}_meta.json")
-        if meta_json.exists():
-            ex = json.loads(meta_json.read_text())
-            # Ensure the per-camera MP4s exist too (a partial prior run may have
-            # written meta but not videos).
-            if all(cache.exists(f"yam_{obj.etag}_{c}.mp4") for c in ex["cameras"]):
-                return ex
+        # The mined detail (cameras, robot summary, instruction, annotations) lives in the derived tier like the
+        # LeRobot/raiden detail blobs: one mine per episode, ever. A local-only copy was LRU-evicted on the box
+        # and every first open re-downloaded a 200-880 MB MCAP (20-100 s).
+        ex = cache.get_json(self._meta_blob(obj), remote=True)
+        # ...and the per-camera MP4s must exist too (a partial prior run may have written meta but not videos)
+        if ex is not None and all(cache.exists(f"yam_{obj.etag}_{c}.mp4") for c in ex["cameras"]):
+            return ex
 
         # Make room for the big MCAP + its extracted MP4s before downloading, so
         # a near-full cache can't wedge mid-download.
@@ -1130,7 +1129,7 @@ class YamMcapSource(Source):
                         atmp.unlink(missing_ok=True)
 
             ex = {"etag": obj.etag, "cameras": probe["cameras"], **mr}
-            meta_json.write_text(json.dumps(ex))
+            cache.put_json(self._meta_blob(obj), ex, remote=True)
             return ex
         finally:
             tmp.unlink(missing_ok=True)
@@ -1157,8 +1156,14 @@ class YamMcapSource(Source):
         raw = s3.try_get_json(f"{prefix}/{uuid}.json", bucket=self.bucket)
         return yam.parse_sidecar(raw) if raw else {}
 
+    @staticmethod
+    def _meta_blob(obj) -> str:
+        return f"yam_{obj.etag}_meta.json"
+
     def episode_detail(self, task, episode):
-        ex = self._mine(self._head(task, episode), task, episode)
+        obj = self._head(task, episode)
+        # the detail needs only the mined blob; clips are produced by video_path on demand
+        ex = cache.get_json(self._meta_blob(obj), remote=True) or self._mine(obj, task, episode)
         cameras = [{"name": c, "has_video": True, "eyes": ["left"]} for c in ex["cameras"]]
         sidecar = self._sidecar(episode)
         sm = sidecar.get("sidecar_meta") or {}
