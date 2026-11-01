@@ -1,4 +1,4 @@
-# YAM Datasets Viewer
+# Robot Datasets Viewer
 
 A lightweight web viewer for **YAM robot datasets** stored on S3 — teleop
 demonstrations, policy rollouts, and public releases — across several on-disk
