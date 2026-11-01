@@ -90,6 +90,12 @@ function apiBase() {
   return `/api/sources/${encodeURIComponent(state.source)}`;
 }
 
+// Full-page loader (index.html #loader): while on, only the animated robot shows. Set for the first paint, a dataset
+// switch and a return to the catalog; background polls never set it. Every path that sets it clears it, errors included.
+function setLoading(on) {
+  document.body.classList.toggle("is-loading", on);
+}
+
 function toast(msg) {
   const t = el("div", "toast", msg);
   document.body.appendChild(t);
@@ -117,6 +123,7 @@ async function init() {
       showCatalog();
     }
   } catch (e) {
+    setLoading(false);
     toast("Failed to load sources: " + e.message);
   }
   $("#task-select").onchange = (ev) => selectTask(ev.target.value);
@@ -216,6 +223,7 @@ async function selectSource(sid, autoTask = null, autoEpisode = null) {
   document.body.classList.remove("catalog-mode");  // reveal the episode-browser sidebar
   $("#catalog-view").classList.add("hidden");
   $("#source-select").value = sid;
+  setLoading(true);
   try {
     const { tasks } = await api(`${apiBase()}/tasks`);
     const sel = $("#task-select");
@@ -223,9 +231,11 @@ async function selectSource(sid, autoTask = null, autoEpisode = null) {
     tasks.forEach((t) => sel.appendChild(new Option(t, t)));
     const startTask = tasks.includes(autoTask) ? autoTask : tasks[0];
     if (startTask) await selectTask(startTask, autoEpisode);
-    if (!autoEpisode) showOverview();
+    if (!autoEpisode) await showOverview();
   } catch (e) {
     toast("Failed to load source: " + e.message);
+  } finally {
+    if (state.source === sid) setLoading(false);   // a newer switch owns the loader otherwise
   }
 }
 
@@ -244,7 +254,7 @@ function showOverview() {
   $("#side-meta").classList.add("hidden");   // metadata belongs to an open episode only
   $("#overview-view").classList.remove("hidden");
   setPreviewPlaying(true);
-  renderOverview();
+  return renderOverview();
 }
 
 /* ---------------- Catalog (landing gallery) ---------------- */
@@ -262,7 +272,7 @@ function showCatalog() {
   $("#episode-view").classList.add("hidden");
   $("#side-meta").classList.add("hidden");
   $("#catalog-view").classList.remove("hidden");
-  renderCatalog();
+  renderCatalog(true);
 }
 
 // where a dataset comes from (config.SOURCES[].origin): shown as a chip on the card and the dataset page
@@ -479,14 +489,21 @@ function annBadge(a) {
   return `<span class="cat-badge ${cls}">${txt}</span>`;
 }
 
-async function renderCatalog() {
+// `boot`: a real (re)load of the page, so the full-page loader shows; the 4 s building-poll passes false.
+async function renderCatalog(boot = false) {
   const grid = $("#cat-grid");
   const agg = $("#cat-agg");
+  if (boot) setLoading(true);
   if (!grid.dataset.init) { grid.innerHTML = `<div class="subtle">Loading datasets…</div>`; grid.dataset.init = "1"; }
   let data;
   try { data = await api("/api/catalog"); }
-  catch (e) { grid.innerHTML = `<div class="subtle">Failed to load catalog: ${e.message}</div>`; return; }
-  if (state.source) return;  // user navigated away while awaiting
+  catch (e) {
+    if (!state.source) setLoading(false);
+    grid.innerHTML = `<div class="subtle">Failed to load catalog: ${esc(e.message)}</div>`;
+    return;
+  }
+  if (state.source) return;  // user navigated away while awaiting (selectSource owns the loader now)
+  setLoading(false);   // same tick as the render below, so the cards fade in filled
   if (ENV === "prod") data.datasets = data.datasets.filter((c) => c.prod !== false);   // dev-only datasets (e.g. yam_sim) leave Prod entirely
 
   const a = data.aggregate;

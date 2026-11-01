@@ -101,7 +101,34 @@ def test_catalog_renders_and_theme_toggle_persists(browser, site):
     # every colour goes through a token: the light sheet changes the page background
     bg = page.evaluate("getComputedStyle(document.body).backgroundColor")
     assert bg == "rgb(245, 246, 249)", bg
+    page.wait_for_selector(".cat-card")   # the sidebar is hidden behind the loader until the catalog lands
     assert page.locator("#brand-home").inner_text().split() == ["Robot", "Datasets"]
+    page.close()
+
+
+def test_loader_hides_the_ui_until_data_lands(browser, site):
+    page = _open(browser, site)
+    page.wait_for_selector(".cat-card")
+    assert not page.evaluate("document.body.classList.contains('is-loading')")
+    assert page.locator("#loader").is_hidden() and page.locator("#main").is_visible()
+    page.evaluate("setLoading(true)")                 # what a dataset switch / first paint shows: only the robot
+    assert page.locator("#loader").is_visible() and page.locator("#loader svg.robot").is_visible()
+    assert page.locator("#main").is_hidden() and page.locator("#sidebar").is_hidden()
+    assert page.locator("#loader").inner_text().startswith("Loading")
+    page.screenshot(path=str(SHOTS / "rv_loader.png"))
+    page.evaluate("showCatalog()")                    # back home: loads, then fades the UI back in
+    page.wait_for_selector(".cat-card")
+    assert page.locator("#loader").is_hidden()
+    page.close()
+
+
+def test_catalog_error_still_shows_its_message(browser, site):
+    page = browser.new_page(viewport={"width": 1400, "height": 900})
+    page.route("**/api/**", lambda r: r.fulfill(status=500, body='{"error": "boom"}')
+               if "api/catalog" in r.request.url else _route(r))
+    page.goto(f"{site}/index.html", wait_until="domcontentloaded")
+    page.wait_for_selector("#cat-grid :text('Failed to load catalog')")
+    assert page.locator("#loader").is_hidden()
     page.close()
 
 
