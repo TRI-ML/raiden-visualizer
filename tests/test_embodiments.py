@@ -48,14 +48,15 @@ def test_every_configured_source_has_a_convention():
     assert missing == [], missing
     for s in config.SOURCES:
         c = emb.convention(s["id"])
-        assert c["summary"] and c["docs"], s["id"]
+        assert c["sentence"] and c["docs"] and c["n_axes"] > 0, s["id"]
+        assert set(c) >= {"state", "action", "frame", "rotation", "gripper", "rate", "axis_groups"}
 
 
 def test_joint_legend_shape():
     robot = {"signals": {"follower_l_joint_pos": {"dims": 6}, "follower_l_gripper_pos": {"dims": 1}}}
     lg = emb.joint_legend("raiden", robot)
     assert set(lg["signals"]) == {"follower_l_joint_pos", "follower_l_gripper_pos"}
-    assert len(lg["signals"]["follower_l_joint_pos"]) == 6 and lg["summary"].startswith("Joint space")
+    assert len(lg["signals"]["follower_l_joint_pos"]) == 6 and lg["sentence"].startswith("Each step")
     assert emb.joint_legend("raiden", None) is None
 
 
@@ -89,3 +90,13 @@ def test_eef32_groups_and_layout():
     assert robot["signals"]["state__left__rpy"]["names"] == ["roll", "pitch", "yaw"]
     # a single undocumented vector has no split
     assert emb.layout("yam_sim", {"signals": {"joint_pos": {"dims": 14, "series": [[0] * 14], "min": 0, "max": 0}}}) is None
+
+
+def test_convention_axis_groups_follow_the_plot_split():
+    c = emb.convention("webbed")
+    assert [g["title"] for g in c["axis_groups"]][:4] == ["left position", "left rotation", "right position", "right rotation"]
+    assert c["n_axes"] == 32 and c["frame"].startswith("each arm")
+    we = emb.convention("worldengine")
+    assert [g["title"] for g in we["axis_groups"]] == ["left joints", "left gripper", "right joints", "right gripper"]
+    nd = emb.convention("yam_sim")
+    assert nd["state"] is None and nd["axis_groups"][0]["axes"][0]["meaning"] == "not documented"

@@ -84,74 +84,68 @@ def _grip(i, arm, label="fraction_open"):
 
 
 # ---- per-dataset conventions -------------------------------------------------------------------------
+# Plain prose first: `sentence` is one normal sentence; the fields are short values for a key/value grid.
+# None means "not documented" (rendered muted, never as a warning). Slot ranges live in the axis tables.
 
-_RAIDEN = {
-    "summary": "Joint space. Per arm: 6 YAM joint angles (rad) + gripper opening (0 closed … 1 open); "
-               "`*_joint_pos_7d` / `*_joint_cmd` = the same 6 joints + gripper, `leader_*` = the teleop leader arm.",
-    "frame": "arm base frame per arm (URDF yam.urdf); gripper is a normalised aperture",
-    "action": "`*_joint_cmd`: absolute commanded joint targets (7 = 6 joints + gripper), same units as the state",
-    "rate": "from `timestamps` (ns) in robot_data.npz, typically 30 Hz policy ticks / 60 Hz teleop",
-    "docs": ["yam-robot svo2_recorder.py _write_robot_data", "raiden_viz/urdf/yam.urdf"],
-}
-_ABC = {
-    "summary": "Joint space (MCAP RobotState): 6 YAM joint angles in radians per arm, plus a world-frame 4x4 "
-               "end-effector pose (not plotted); GripperState aperture 0 = closed, 1 = open.",
-    "frame": "joints in the arm's own frame; the EE pose in the MCAP is world-frame",
-    "action": "leader / action topics exist in the MCAP but are not plotted here",
-    "rate": "per-stream timestamps (absolute ns); typically 30 Hz",
-    "docs": ["abc-130k README.md (Data format)"],
-}
-_V3AR_DROID = {
-    "summary": "End-effector space, 10-D: [TCP xyz (m), rot6d (6, first two rows of R), gripper opening (1 = open)] "
-               "for the single Franka Panda arm.",
-    "frame": "robot base frame (DROID LeRobot port)", "action": "same 10-D layout; absolute vs delta: not documented in the export",
-    "rate": "15 Hz", "docs": ["flex-pi_release motion_check/cache_droid.py"],
-}
-_V3AR_REALOMNI = {
-    "summary": "End-effector space, 20-D: per hand-held UMI gripper [tcp_x, tcp_y, tcp_z (m), rot6d_0…5 (first two rows "
-               "of R), fraction_open (0–1)], left then right (names in meta/info.json).",
-    "frame": "not documented in the export (hand-held UMI grippers; ego/camera frame vs world is not stated)",
-    "action": "same 20 names; absolute vs delta: not documented", "rate": "30 Hz",
-    "docs": ["realomin_v3ar/*/meta/info.json feature names", "flex-pi_release unwebbed_pools_REPORT.md §1"],
-}
-_V3AR_HABIT = {
-    "summary": "End-effector space, 20-D, two Franka Panda arms: [TCP xyz, rot6d (6), gripper] per arm "
-               "(layout inferred from the same v3ar converter as DROID/RealOmni — not documented for HABIT).",
-    "frame": "not documented", "action": "same 20-D layout; absolute vs delta: not documented", "rate": "10 Hz",
-    "docs": ["habit_v3ar/habit_full/meta/info.json (generic names only)"],
-}
-_V3AR_AGIBOT = {
-    "summary": "End-effector space, 20-D: [L TCP xyz, L rot6d (first two COLUMNS of R), R TCP xyz, R rot6d, "
-               "L gripper, R gripper] — AgiBot's disk layout; the 7-joint channels of the 34-D layout are not in this export.",
-    "frame": "robot base frame", "action": "same 20-D layout; absolute vs delta: not documented", "rate": "30 Hz",
-    "docs": ["flex-pi_release docs/CORPUS_CONTRACT.md §1 (34-D layout, [0:20])"],
-}
-_WEBBED = {
-    "summary": "eef32: [0:3] L TCP xyz (m), [3:9] L rot6d (first two rows of R), [9:12] R TCP xyz, [12:18] R rot6d, "
-               "[18] L gripper, [19] R gripper (0–1, 1 = open), [20:26] L joints ×6 (rad), [26:32] R joints ×6.",
-    "frame": "each arm in its own base frame: +x away from the base, +y robot-left, +z up",
-    "action": "same 32 slots (`action`); the stored file's absolute/relative convention is not documented "
-              "(Flex-π makes it body-frame relative at training time)",
-    "rate": "30 Hz", "docs": ["flex-pi_release docs/CORPUS_CONTRACT.md §1", "motion_check/proprio.py"],
-}
-_WORLDENGINE = {
-    "summary": "Joint space, 14-D: per arm waist, shoulder, elbow, forearm_roll, wrist_angle, wrist_rotate (rad) + gripper, "
-               "left then right (names in meta/info.json).",
-    "frame": "joint space", "action": "same 14 names; absolute vs delta: not documented in info.json", "rate": "60 Hz",
-    "docs": ["yam_public/WorldEngine/*/meta/info.json"],
-}
-_MOLMO = {
-    "summary": "Joint space, 14-D: per arm joint_0…joint_5 (rad) + gripper, left then right (names in meta/info.json; "
-               "bi_yam_follower).",
-    "frame": "joint space", "action": "same 14 names (`*.pos`); absolute joint targets", "rate": "30 Hz",
-    "docs": ["yam_public/MolmoAct2-BimanualYAM/meta/info.json"],
-}
-_YAM_SIM = {
-    "summary": "14-D state / action with generic names (`state`, `action`) — per-dimension order is not documented "
-               "in the repo's info.json (yam_bimanual; presumably 6 joints + gripper per arm).",
-    "frame": "not documented", "action": "not documented", "rate": "30 Hz",
-    "docs": ["tri-yam/sim_datasets/*/lerobot/meta/info.json"],
-}
+def _conv(sentence, state, action=None, frame=None, rotation=None, gripper=None, rate=None, docs=()):
+    return {"sentence": sentence, "state": state, "action": action, "frame": frame, "rotation": rotation,
+            "gripper": gripper, "rate": rate, "docs": list(docs)}
+
+
+_RAIDEN = _conv(
+    "Each step stores both arms' joint angles and gripper openings, plus the commanded targets for the next step.",
+    state="six joint angles and one gripper opening per arm; the teleop leader arm's joints are stored alongside",
+    action="absolute joint targets, six joints plus the gripper per arm",
+    frame="joint space; each arm's joints in its own base frame", rotation=None,
+    gripper="0 closed … 1 open (normalised aperture)", rate="30 Hz policy steps (60 Hz for teleop recordings)",
+    docs=["yam-robot svo2_recorder.py", "raiden_viz/urdf/yam.urdf"])
+_ABC = _conv(
+    "Each step stores both arms' joint angles and gripper openings as recorded by the bimanual YAM station.",
+    state="six joint angles per arm (the MCAP also carries a world-frame end-effector pose, not plotted)",
+    action="leader-arm targets exist in the recording but are not shown here",
+    frame="joint space; the end-effector pose in the MCAP is in the world frame", rotation=None,
+    gripper="0 closed … 1 open", rate="30 Hz", docs=["abc-130k README (Data format)"])
+_V3AR_DROID = _conv(
+    "Each step stores the single Franka arm's end-effector pose and gripper opening.",
+    state="end-effector position and rotation, then the gripper opening", action=None,
+    frame="robot base frame", rotation="6D (first two rows of the rotation matrix)",
+    gripper="0 closed … 1 open", rate="15 Hz", docs=["flex-pi_release motion_check/cache_droid.py"])
+_V3AR_REALOMNI = _conv(
+    "Each step stores the two hand-held UMI grippers' poses and openings, left then right.",
+    state="per gripper: position, rotation and opening fraction", action=None,
+    frame=None, rotation="6D (first two rows of the rotation matrix)",
+    gripper="0 closed … 1 open", rate="30 Hz", docs=["realomin_v3ar info.json", "flex-pi_release unwebbed_pools_REPORT.md"])
+_V3AR_HABIT = _conv(
+    "Each step stores both Franka arms' end-effector poses and gripper openings (layout inferred from the sibling exports).",
+    state="per arm: position, rotation, gripper opening", action=None, frame=None,
+    rotation="6D (first two rows of the rotation matrix)", gripper="0 closed … 1 open", rate="10 Hz",
+    docs=["habit_v3ar info.json (generic names only)"])
+_V3AR_AGIBOT = _conv(
+    "Each step stores both arms' end-effector poses, then the two gripper openings.",
+    state="left pose, right pose, then left and right gripper openings", action=None,
+    frame="robot base frame", rotation="6D (first two columns of the rotation matrix)",
+    gripper="0 closed … 1 open", rate="30 Hz", docs=["flex-pi_release docs/CORPUS_CONTRACT.md"])
+_WEBBED = _conv(
+    "Each step stores the two arms' end-effector poses, gripper openings and joint angles.",
+    state="per arm: end-effector position and rotation; then both gripper openings; then six joint angles per arm",
+    action="the same quantities for the next step (whether stored absolute or relative is not documented)",
+    frame="each arm's own base frame: +x away from the base, +y to the robot's left, +z up",
+    rotation="6D (first two rows of the rotation matrix)", gripper="0 closed … 1 open", rate="30 Hz",
+    docs=["flex-pi_release docs/CORPUS_CONTRACT.md", "motion_check/proprio.py"])
+_WORLDENGINE = _conv(
+    "Each step stores both arms' joint angles and gripper openings, named per joint.",
+    state="per arm: waist, shoulder, elbow, forearm roll, wrist angle, wrist rotate, then the gripper",
+    action="the same channels as targets (absolute or delta is not documented)", frame="joint space",
+    rotation=None, gripper="0 closed … 1 open", rate="60 Hz", docs=["WorldEngine meta/info.json"])
+_MOLMO = _conv(
+    "Each step stores both arms' six joint angles and gripper openings.",
+    state="per arm: joints 0 to 5, then the gripper", action="absolute joint targets, same channels",
+    frame="joint space", rotation=None, gripper="0 closed … 1 open", rate="30 Hz",
+    docs=["MolmoAct2-BimanualYAM meta/info.json"])
+_YAM_SIM = _conv(
+    "Each step stores a 14-value state and action whose order is not documented (presumably six joints and a gripper per arm).",
+    state=None, action=None, frame=None, rotation=None, gripper=None, rate="30 Hz",
+    docs=["tri-yam sim_datasets lerobot meta/info.json"])
 
 CONVENTIONS = {
     "raiden": _RAIDEN, "raiden2": _RAIDEN, "yam_russet": _RAIDEN, "policy_rollouts": _RAIDEN, "eval_rollouts": _RAIDEN,
@@ -161,13 +155,44 @@ CONVENTIONS = {
     "webbed": _WEBBED, "worldengine": _WORLDENGINE, "molmoact2_yam": _MOLMO, "yam_sim": _YAM_SIM,
 }
 
-_UNDOCUMENTED = {"summary": "State convention not documented for this dataset.", "frame": "not documented",
-                 "action": "not documented", "rate": None, "docs": []}
+_UNDOCUMENTED = _conv("The state convention of this dataset is not documented.", None)
+
+# the dataset's representative state vector (signal key, width, names) for the overview's axis table
+REALOMNI_NAMES = [f"{a}_{n}" for a in ("left", "right") for n in ("tcp_x", "tcp_y", "tcp_z", *[f"rot6d_{k}" for k in range(6)], "fraction_open")]
+WE_NAMES = [f"{a}_{n}" for a in ("left", "right") for n in (*WE_JOINT_NAMES, "gripper")]
+MOLMO_NAMES = [f"{a}_{n}" for a in ("left", "right") for n in (*[f"joint_{k}.pos" for k in range(6)], "gripper.pos")]
+STATE_VECTOR = {
+    **{s: [("follower_l_joint_pos_7d", 7, None), ("follower_r_joint_pos_7d", 7, None)] for s in ("raiden", "raiden2", "yam_russet", "policy_rollouts", "eval_rollouts")},
+    **{s: [("left_arm_state", 6, None), ("left_ee_state", 1, None), ("right_arm_state", 6, None), ("right_ee_state", 1, None)] for s in ("yam", "abc130k", "abc130k_val", "xdof_zed")},
+    "droid": [("joint_pos", 10, None)], "habit": [("joint_pos", 20, None)], "agibot26": [("joint_pos", 20, None)], "agibot_beta": [("joint_pos", 20, None)],
+    "realomni": [("l_joint_pos", 10, REALOMNI_NAMES[:10]), ("r_joint_pos", 10, REALOMNI_NAMES[10:])],
+    "webbed": [("state", 32, None)],
+    "worldengine": [("l_joint_pos", 6, WE_NAMES[:6]), ("l_gripper_pos", 1, None), ("r_joint_pos", 6, WE_NAMES[7:13]), ("r_gripper_pos", 1, None)],
+    "molmoact2_yam": [("l_joint_pos", 6, MOLMO_NAMES[:6]), ("l_gripper_pos", 1, None), ("r_joint_pos", 6, MOLMO_NAMES[7:13]), ("r_gripper_pos", 1, None)],
+    "yam_sim": [("joint_pos", 14, None)],
+}
+
+
+def axis_groups(sid: str, vectors) -> list[dict]:
+    """[{title, axes}] grouped per arm and quantity (the same split the plots use), for the axis tables."""
+    out = []
+    for key, dims, names in vectors:
+        ax = axes(sid, key, dims, names)
+        for g in groups(sid, key, dims, names):
+            title = " ".join(x for x in (g["arm"], g["kind"]) if x) or key
+            if g["kind"] == "other":
+                title = key
+            out.append({"title": title, "axes": [a for a in ax if a["i"] in set(g["idx"])]})
+    return out
 
 
 def convention(sid: str) -> dict:
+    """The overview's card: prose + key/value fields + the collapsed axis table."""
     c = CONVENTIONS.get(sid, _UNDOCUMENTED)
-    return {"summary": c["summary"], "frame": c["frame"], "action": c["action"], "rate": c["rate"], "docs": c["docs"]}
+    out = dict(c)
+    out["axis_groups"] = axis_groups(sid, STATE_VECTOR.get(sid, []))
+    out["n_axes"] = sum(len(g["axes"]) for g in out["axis_groups"])
+    return out
 
 
 # ---- per-signal axis lists -----------------------------------------------------------------------------
@@ -249,7 +274,7 @@ def _kind(a: dict) -> str:
         return "rotation"
     if "grip" in n or "fraction_open" in n or "gripper" in m:
         return "gripper"
-    if "joint" in n or "revolute" in m:
+    if "joint" in n or "revolute" in m or any(w in n for w in ("waist", "shoulder", "elbow", "forearm", "wrist")):
         return "joints"
     return "other"
 

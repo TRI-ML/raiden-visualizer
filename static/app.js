@@ -1037,14 +1037,47 @@ function renderConvention(c) {
   const card = $("#ov-convention");
   if (!c) { card.hidden = true; return; }
   card.hidden = false;
-  $("#conv-summary").textContent = c.summary;
-  const body = $("#conv-body");
-  body.innerHTML = "";
-  [["Frame", c.frame], ["Action", c.action], ["Rate", c.rate], ["Sources", (c.docs || []).join(" · ")]].forEach(([k, v]) => {
-    if (!v) return;
-    body.appendChild(el("dt", null, k));
-    body.appendChild(el("dd", k === "Sources" ? "docs" : null, v));
+  const view = $("#conv-view");
+  view.innerHTML = "";
+  view.appendChild(conventionView(c, { groups: c.axis_groups || [], expanded: false }));
+}
+
+// One renderer for the dataset's state convention: a plain sentence, a key/value grid, then the axis tables
+// grouped per arm and quantity — collapsed behind "Show the N axes" on the overview, open in the episode ? popover.
+const CONV_FIELDS = [["State", "state"], ["Action", "action"], ["Frame", "frame"], ["Rotation", "rotation"], ["Gripper", "gripper"], ["Rate", "rate"]];
+function conventionView(c, { groups = [], expanded = false } = {}) {
+  const box = el("div", "conv");
+  box.appendChild(el("p", "conv-sentence", c.sentence || "The state convention of this dataset is not documented."));
+  const dl = el("dl", "conv-grid");
+  CONV_FIELDS.forEach(([k, f]) => {
+    dl.appendChild(el("dt", null, k));
+    dl.appendChild(el("dd", c[f] ? null : "nd", c[f] || "not documented"));
   });
+  box.appendChild(dl);
+  const n = groups.reduce((s, g) => s + g.axes.length, 0);
+  if (n) {
+    const det = document.createElement("details");
+    det.className = "conv-axes";
+    det.open = expanded;
+    det.appendChild(el("summary", null, `Show the ${n} axes`));
+    groups.forEach((g) => {
+      det.appendChild(el("h4", null, g.title));
+      const tb = el("table");
+      g.axes.forEach((a) => {
+        const tr = el("tr");
+        tr.appendChild(el("td", "i", String(a.i)));
+        tr.appendChild(el("td", "n", a.name));
+        const nd = /not documented/i.test(a.meaning);
+        tr.appendChild(el("td", nd ? "nd" : null, (nd ? "not documented" : a.meaning) + (a.range ? ` · ${a.range[0]} … ${a.range[1]}` : "")));
+        tr.appendChild(el("td", "u", a.unit || ""));
+        tb.appendChild(tr);
+      });
+      det.appendChild(tb);
+    });
+    box.appendChild(det);
+  }
+  if (c.docs && c.docs.length) box.appendChild(el("div", "conv-docs", "Documented in: " + c.docs.join(" · ")));
+  return box;
 }
 
 /* ---------------- Overview: per-task breakdown ---------------- */
@@ -2774,39 +2807,20 @@ function renderPlotHelp(robot) {
   if (!lg) { btn.hidden = true; return; }
   btn.hidden = false;
   pop.innerHTML = "";
-  pop.appendChild(el("p", "hp-sum", lg.summary));
-  const meta = el("p", "hp-meta");
-  [["Frame", lg.frame], ["Action", lg.action], ["Rate", lg.rate]].forEach(([k, v]) => {
-    if (!v) return;
-    const b = el("b", null, k + ": "); meta.appendChild(b); meta.appendChild(document.createTextNode(v + "  "));
-  });
-  pop.appendChild(meta);
-  let panels;
+  let groups;
   if (lg.layout && lg.layout.length) {
     const secs = [...new Set(lg.layout.map((p) => plotSection(p.raw_key || p.key)))].sort().reverse();
-    panels = [];
-    secs.forEach((s) => lg.layout.filter((p) => plotSection(p.raw_key || p.key) === s).forEach((p) =>
-      panels.push({ title: secs.length > 1 ? `${s} · ${p.label}` : p.label, key: p.raw_key || p.key, idx: p.raw_idx || p.idx })));
+    groups = [];
+    secs.forEach((s) => lg.layout.filter((p) => plotSection(p.raw_key || p.key) === s).forEach((p) => {
+      const key = p.raw_key || p.key, idx = p.raw_idx || p.idx;
+      const ax = (lg.signals[key] || []).filter((a) => idx.includes(a.i));
+      if (ax.length) groups.push({ title: (secs.length > 1 ? `${s} · ` : "") + p.label, axes: ax });
+    }));
   } else {
-    panels = Object.keys(robot.signals || {}).sort(plotPriority).map((key) => ({ title: prettySignal(key), key, idx: null }));
+    groups = Object.keys(robot.signals || {}).sort(plotPriority)
+      .map((key) => ({ title: prettySignal(key), axes: lg.signals[key] || [] })).filter((g) => g.axes.length);
   }
-  panels.forEach(({ title, key, idx }) => {
-    const all = lg.signals[key]; if (!all || !all.length) return;
-    const ax = idx ? all.filter((a) => idx.includes(a.i)) : all;
-    if (!ax.length) return;
-    pop.appendChild(el("h4", null, title));
-    const tb = el("table");
-    ax.forEach((a) => {
-      const tr = el("tr");
-      tr.appendChild(el("td", "i", String(a.i)));
-      tr.appendChild(el("td", "n", a.name));
-      tr.appendChild(el("td", null, a.meaning + (a.range ? ` · range ${a.range[0]} … ${a.range[1]}` : "")));
-      tr.appendChild(el("td", "u", a.unit || ""));
-      tb.appendChild(tr);
-    });
-    pop.appendChild(tb);
-  });
-  if (lg.docs && lg.docs.length) pop.appendChild(el("div", "hp-docs", "Sources: " + lg.docs.join(" · ")));
+  pop.appendChild(conventionView(lg, { groups, expanded: true }));
   btn.onclick = () => { pop.hidden = !pop.hidden; btn.setAttribute("aria-expanded", String(!pop.hidden)); };
 }
 

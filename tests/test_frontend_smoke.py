@@ -41,7 +41,7 @@ _ROBOT = {"keys": ["follower_l_joint_pos", "follower_l_gripper_pos"], "time": [0
 _ROBOT["joint_legend"] = _emb.joint_legend("raiden", _ROBOT)
 _ROBOT["joint_legend"]["layout"] = _emb.layout("raiden", _ROBOT)
 DETAIL["robot"] = _ROBOT
-CONVENTION = _emb.convention("raiden")
+CONVENTION = _emb.convention("webbed")   # the demo dataset is a UW YAM (eef32) set
 # episode 3: a bimanual eef32 (UW YAM) trajectory → the two-column arm grid
 _EEF = {"keys": ["state"], "time": [0.0, 1.0, 2.0],
         "signals": {"state": {"dims": 32, "series": [[0.1 * i] * 3 + [1, 0, 0, 0, 1, 0] + [0.2 * i] * 3 + [1, 0, 0, 0, 1, 0] + [0.5, 0.5] + [0.01 * i] * 12 for i in range(3)],
@@ -249,9 +249,15 @@ def test_axis_legend_popover_and_convention_card(browser, site):
     # overview: the one-line state convention, expandable
     page = _open(browser, site, hash_="#demo/kitchen_put_spoon_seg48")
     page.wait_for_selector("#ov-convention:not([hidden])")
-    assert page.locator("#conv-summary").inner_text().startswith("Joint space")
-    page.click("#ov-convention summary")
-    assert "FRAME" in page.locator("#conv-body").inner_text().upper()
+    assert page.locator("#ov-convention .conv-sentence").inner_text().startswith("Each step")
+    dts = page.locator("#ov-convention .conv-grid dt").all_inner_texts()
+    assert [d.upper() for d in dts] == ["STATE", "ACTION", "FRAME", "ROTATION", "GRIPPER", "RATE"]
+    assert "6D" in page.locator("#ov-convention .conv-grid dd").nth(3).inner_text()   # rotation row, plain words
+    det = page.locator("#ov-convention details.conv-axes")
+    assert not det.evaluate("d => d.open") and "Show the 32 axes" in det.locator("summary").inner_text()
+    det.locator("summary").click()
+    assert det.locator("table tr").count() == 32 and det.locator("h4").first.inner_text().upper() == "LEFT POSITION"
+    page.screenshot(path=str(SHOTS / "rv_state_conv2.png"))
     # episode: no "Robot trajectories" title; the ? lists every axis of the plotted signals
     page.close()
     page = _open(browser, site, hash_="#demo/kitchen_put_spoon_seg48/chunk_000__episode_000001")
@@ -261,11 +267,13 @@ def test_axis_legend_popover_and_convention_card(browser, site):
     assert page.locator("#plot-help-pop").is_hidden()
     page.click("#plot-help")
     page.wait_for_selector("#plot-help-pop:not([hidden])")
+    assert page.locator("#plot-help-pop details.conv-axes").evaluate("d => d.open")   # expanded in the popover
     assert page.locator("#plot-help-pop table").count() == 2          # gripper (1 row) + joints (6 rows)
     assert page.locator("#plot-help-pop table tr").count() == 7
     joints = page.locator("#plot-help-pop table").nth(1).locator("tr")
     assert joints.count() == 6 and "joint1" in joints.nth(0).inner_text() and "rad" in joints.nth(0).inner_text()
     assert "0 = closed" in page.locator("#plot-help-pop").inner_text()
+    assert "Gripper" in page.locator("#plot-help-pop .conv-grid").inner_text() or "GRIPPER" in page.locator("#plot-help-pop .conv-grid").inner_text().upper()
     # series legend shows the short joint names, the title the unit
     assert "joint1" in page.locator("#plots .legend").first.inner_text()
     titles = page.locator("#plots .plot-title")
