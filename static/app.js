@@ -259,8 +259,8 @@ const ORIGIN_LABEL = { tri: "TRI", open: "Open source", purchased: "Purchased" }
 // robots in the set (config.SOURCES[].embodiments, else derived from LeRobot robot_type by the stats pass)
 const embodimentPills = (list) => (list || []).map((e) => `<span class="cat-fmt cat-embod">${esc(e)}</span>`).join("");
 const CAT_KIND_LABEL = {
-  raiden: "ZED .svo2", yam: "MCAP", lerobot: "LeRobot v3.0",
-  lerobot_single: "LeRobot v3.0",
+  raiden: "ZED .svo2", raiden_rollouts: "ZED .svo2", yam: "MCAP", lerobot: "LeRobot v3.0",
+  lerobot_single: "LeRobot v3.0", webbed: "LeRobot shards",
 };
 
 // Minimal HTML escape — card templates go through innerHTML, and a card's error
