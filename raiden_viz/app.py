@@ -14,7 +14,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import cache, catalog, clips, config, contrib, raiden_teachers, sources, jobs
+from . import cache, catalog, clips, config, contrib, lerobot, raiden_teachers, s3, sources, jobs
 
 logger = logging.getLogger("raiden_viz")
 
@@ -349,6 +349,31 @@ def overview(sid: str):
     ov = _src(sid).overview()
     ov["region"] = config.AWS_REGION
     return ov
+
+
+_FEATURES: dict[str, dict] = {}   # sid -> {features, from}; info.json is static per dataset version
+
+
+@app.get("/api/sources/{sid}/conventions")
+def conventions(sid: str):
+    """What each state/action axis means: the curated table (config.CONVENTIONS, may be None) plus, for LeRobot
+    sources, the float features of the first task's meta/info.json ({key, dims, names}; names None when opaque)."""
+    src = _src(sid)
+    out = {"curated": config.CONVENTIONS.get(sid), "features": None, "features_from": None}
+    if isinstance(src, sources.LeRobotSource):
+        if sid not in _FEATURES:
+            # a single-root dataset has one info.json; a per-task source reads its first task's (empty while the
+            # index builds: answer curated-only for now)
+            tasks = [""] if isinstance(src, sources.LeRobotSingleRootSource) else src.list_tasks()
+            if tasks:
+                path = f"{src._task_root(tasks[0])}/meta/info.json"
+                try:
+                    _FEATURES[sid] = {"features": lerobot.lowdim_features(s3.get_json(path, bucket=src.bucket)),
+                                      "features_from": f"s3://{src.bucket}/{path}"}
+                except Exception as e:  # noqa: BLE001 - the curated table still answers
+                    logger.warning("conventions: %s info.json unreadable: %s", sid, e)
+        out.update(_FEATURES.get(sid, {}))
+    return out
 
 
 @app.get("/api/sources/{sid}/task-teachers")

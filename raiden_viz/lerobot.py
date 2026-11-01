@@ -69,6 +69,30 @@ def parse_info(info: dict) -> dict:
     }
 
 
+# Bookkeeping columns every LeRobot dataset has; not state or action.
+_INDEX_FEATURES = {"timestamp", "frame_index", "episode_index", "index", "task_index"}
+
+
+def lowdim_features(info: dict) -> list[dict]:
+    """The float features of a raw ``meta/info.json`` (state, action, joint_state, ...):
+    ``[{key, dtype, dims, names}]``. ``names`` is None when info.json gives no per-axis names (absent,
+    or a single placeholder such as ``["state"]`` for a multi-dim feature)."""
+    out = []
+    for key, feat in (info.get("features") or {}).items():
+        dtype = str(feat.get("dtype"))
+        if key in _INDEX_FEATURES or not dtype.startswith("float"):   # flags, ids, strings, video
+            continue
+        shape = feat.get("shape") or [1]
+        dims = int(shape[0]) if len(shape) == 1 else None
+        names = feat.get("names")
+        if isinstance(names, dict):   # LeRobot v2 style {"axes": [...]}
+            names = next(iter(names.values()), None)
+        if not isinstance(names, list) or dims is None or len(names) != dims:
+            names = None
+        out.append({"key": key, "dtype": dtype, "dims": dims, "names": names})
+    return out
+
+
 def parse_tasks(table) -> dict:
     """``meta/tasks.parquet`` -> {task_index: instruction text}."""
     cols = table.column_names

@@ -90,6 +90,12 @@ function apiBase() {
   return `/api/sources/${encodeURIComponent(state.source)}`;
 }
 
+// Full-page loader (index.html #loader): while on, only the animated robot shows. Set for the first paint, a dataset
+// switch and a return to the catalog; background polls never set it. Every path that sets it clears it, errors included.
+function setLoading(on) {
+  document.body.classList.toggle("is-loading", on);
+}
+
 function toast(msg) {
   const t = el("div", "toast", msg);
   document.body.appendChild(t);
@@ -117,6 +123,7 @@ async function init() {
       showCatalog();
     }
   } catch (e) {
+    setLoading(false);
     toast("Failed to load sources: " + e.message);
   }
   $("#task-select").onchange = (ev) => selectTask(ev.target.value);
@@ -216,6 +223,7 @@ async function selectSource(sid, autoTask = null, autoEpisode = null) {
   document.body.classList.remove("catalog-mode");  // reveal the episode-browser sidebar
   $("#catalog-view").classList.add("hidden");
   $("#source-select").value = sid;
+  setLoading(true);
   try {
     const { tasks } = await api(`${apiBase()}/tasks`);
     const sel = $("#task-select");
@@ -223,9 +231,11 @@ async function selectSource(sid, autoTask = null, autoEpisode = null) {
     tasks.forEach((t) => sel.appendChild(new Option(t, t)));
     const startTask = tasks.includes(autoTask) ? autoTask : tasks[0];
     if (startTask) await selectTask(startTask, autoEpisode);
-    if (!autoEpisode) showOverview();
+    if (!autoEpisode) await showOverview();
   } catch (e) {
     toast("Failed to load source: " + e.message);
+  } finally {
+    if (state.source === sid) setLoading(false);   // a newer switch owns the loader otherwise
   }
 }
 
@@ -244,7 +254,7 @@ function showOverview() {
   $("#side-meta").classList.add("hidden");   // metadata belongs to an open episode only
   $("#overview-view").classList.remove("hidden");
   setPreviewPlaying(true);
-  renderOverview();
+  return renderOverview();
 }
 
 /* ---------------- Catalog (landing gallery) ---------------- */
@@ -262,7 +272,7 @@ function showCatalog() {
   $("#episode-view").classList.add("hidden");
   $("#side-meta").classList.add("hidden");
   $("#catalog-view").classList.remove("hidden");
-  renderCatalog();
+  renderCatalog(true);
 }
 
 // where a dataset comes from (config.SOURCES[].origin): shown as a chip on the card and the dataset page
@@ -479,14 +489,21 @@ function annBadge(a) {
   return `<span class="cat-badge ${cls}">${txt}</span>`;
 }
 
-async function renderCatalog() {
+// `boot`: a real (re)load of the page, so the full-page loader shows; the 4 s building-poll passes false.
+async function renderCatalog(boot = false) {
   const grid = $("#cat-grid");
   const agg = $("#cat-agg");
+  if (boot) setLoading(true);
   if (!grid.dataset.init) { grid.innerHTML = `<div class="subtle">Loading datasets…</div>`; grid.dataset.init = "1"; }
   let data;
   try { data = await api("/api/catalog"); }
-  catch (e) { grid.innerHTML = `<div class="subtle">Failed to load catalog: ${e.message}</div>`; return; }
-  if (state.source) return;  // user navigated away while awaiting
+  catch (e) {
+    if (!state.source) setLoading(false);
+    grid.innerHTML = `<div class="subtle">Failed to load catalog: ${esc(e.message)}</div>`;
+    return;
+  }
+  if (state.source) return;  // user navigated away while awaiting (selectSource owns the loader now)
+  setLoading(false);   // same tick as the render below, so the cards fade in filled
   if (ENV === "prod") data.datasets = data.datasets.filter((c) => c.prod !== false);   // dev-only datasets (e.g. yam_sim) leave Prod entirely
 
   const a = data.aggregate;
@@ -566,7 +583,7 @@ async function renderCatalog() {
 
   // Stash the cards for the comparison bar chart (redrawn on metric toggle / resize).
   state.catalog = data.datasets;
-  drawCatalogBars(state.catMetric || "episodes");
+  drawCatalogBars(state.catMetric || "episodes", boot);
   if (ENV === "dev") {   // the activity panels belong to the dev feature set (see initEnv)
     loadContrib();   // upload-activity calendar (independent /api/contrib scan)
     loadTeachers();  // raiden teleop-per-day-by-teacher bars (/api/raiden_teachers)
@@ -588,8 +605,14 @@ const CAT_METRICS = {
   tasks: { key: "num_tasks", label: "tasks", fmt: (v) => String(v) },
 };
 
-function drawCatalogBars(metric) {
+const BAR_GROW_MS = 600, BAR_STAGGER_MS = 35;   // compare-bars grow-in: per-bar duration and offset
+const reducedMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+// `animate`: grow the bars from 0 (a page (re)load). They also grow when the metric or the set of plotted datasets
+// changes; a theme switch or a poll with the same rows redraws them in place.
+function drawCatalogBars(metric, animate = false) {
   state.catMetric = metric;
+  cancelAnimationFrame(state._catBarsRaf);
   const canvas = $("#cat-bar-canvas");
   if (!canvas || !state.catalog) return;
   const m = CAT_METRICS[metric] || CAT_METRICS.episodes;
@@ -602,6 +625,9 @@ function drawCatalogBars(metric) {
   const rowH = 30, padTop = 8, padBot = 26;
   canvas.style.height = (rows.length * rowH + padTop + padBot) + "px";
   const { ctx, W, H } = setupCanvas("cat-bar-canvas");
+  const rowsKey = metric + "|" + rows.map((r) => r.label).join("|");
+  const grow = (animate || rowsKey !== state._catBarsKey) && !reducedMotion();
+  state._catBarsKey = rowsKey;
   if (!rows.length) {
     ctx.fillStyle = cssVar("--text-faint"); ctx.font = "12px 'Inter', sans-serif"; ctx.textAlign = "left";
     ctx.fillText("computing…", 8, 20);
@@ -618,29 +644,44 @@ function drawCatalogBars(metric) {
   const step = ticks.length > 1 ? ticks[1] - ticks[0] : (maxV || 1);
   let tickMax = ticks[ticks.length - 1] || maxV;
   while (tickMax < maxV) { tickMax += step; ticks.push(tickMax); }
-  ticks.forEach((v) => {
-    const x = x0 + plotW * (v / tickMax);
-    ctx.strokeStyle = cssVar("--grid-line");
-    ctx.beginPath(); ctx.moveTo(x, padTop); ctx.lineTo(x, H - padBot + 4); ctx.stroke();
-    ctx.fillStyle = cssVar("--text-faint"); ctx.textAlign = "center";
-    ctx.fillText(m.fmt(v), x, H - padBot + 18);
-  });
-  // bars + labels
-  rows.forEach((r, i) => {
-    const y = padTop + i * rowH;
-    const bh = rowH - 10;
-    const bw = Math.max(2, plotW * (r.v / tickMax));
-    // dataset label (right-aligned, truncated by clip)
-    ctx.fillStyle = cssVar("--text"); ctx.font = "12px 'Inter', sans-serif"; ctx.textAlign = "right";
-    ctx.fillText(r.label.length > 24 ? r.label.slice(0, 23) + "…" : r.label, labelW - 12, y + bh / 2 + 4);
-    // bar
-    ctx.fillStyle = cssVar("--accent");
-    roundRect(ctx, x0, y + 2, bw, bh, 3); ctx.fill();
-    // value at bar end
-    ctx.fillStyle = cssVar("--text-dim"); ctx.font = "11px 'JetBrains Mono', monospace"; ctx.textAlign = "left";
-    ctx.fillText(m.fmt(r.v), x0 + bw + 6, y + bh / 2 + 4);
-  });
+  // one frame at `t` ms into the grow-in (Infinity = the final state)
+  const paint = (t) => {
+    ctx.clearRect(0, 0, W, H);
+    ctx.font = "10px 'JetBrains Mono', monospace";
+    ticks.forEach((v) => {
+      const x = x0 + plotW * (v / tickMax);
+      ctx.strokeStyle = cssVar("--grid-line");
+      ctx.beginPath(); ctx.moveTo(x, padTop); ctx.lineTo(x, H - padBot + 4); ctx.stroke();
+      ctx.fillStyle = cssVar("--text-faint"); ctx.textAlign = "center";
+      ctx.fillText(m.fmt(v), x, H - padBot + 18);
+    });
+    // bars + labels
+    rows.forEach((r, i) => {
+      const y = padTop + i * rowH;
+      const bh = rowH - 10;
+      const p = Math.min(1, Math.max(0, (t - i * BAR_STAGGER_MS) / BAR_GROW_MS));
+      const bw = Math.max(2, plotW * (r.v / tickMax) * (1 - (1 - p) ** 3));   // ease-out cubic
+      // dataset label (right-aligned, truncated by clip)
+      ctx.fillStyle = cssVar("--text"); ctx.font = "12px 'Inter', sans-serif"; ctx.textAlign = "right";
+      ctx.fillText(r.label.length > 24 ? r.label.slice(0, 23) + "…" : r.label, labelW - 12, y + bh / 2 + 4);
+      // bar
+      ctx.fillStyle = cssVar("--accent");
+      roundRect(ctx, x0, y + 2, bw, bh, 3); ctx.fill();
+      // value at bar end
+      ctx.fillStyle = cssVar("--text-dim"); ctx.font = "11px 'JetBrains Mono', monospace"; ctx.textAlign = "left";
+      ctx.fillText(m.fmt(r.v), x0 + bw + 6, y + bh / 2 + 4);
+    });
+  };
+  if (!grow) { paint(Infinity); return; }
+  const t0 = performance.now(), total = BAR_GROW_MS + BAR_STAGGER_MS * (rows.length - 1);
+  const frame = (now) => {
+    paint(now - t0);
+    if (now - t0 < total) state._catBarsRaf = requestAnimationFrame(frame);
+    else state.catBarsGrown = (state.catBarsGrown || 0) + 1;   // finished grow-ins (the smoke test reads it)
+  };
+  state._catBarsRaf = requestAnimationFrame(frame);
 }
+
 
 function roundRect(ctx, x, y, w, h, r) {
   r = Math.min(r, h / 2, w / 2);
@@ -982,9 +1023,66 @@ async function renderOverview() {
     renderTaskList();
     loadTaskTeachers();   // reveals the robot-teacher filter when its scan is ready
     renderAnalytics(ov.tasks.map((t) => t.task));
+    renderConventions();
   } catch (e) {
     toast("Failed to load overview: " + e.message);
   }
+}
+
+/* ---------------- Overview: state & action convention ---------------- */
+
+// One table per signal group (axis -> name -> unit/range -> meaning) from the curated conventions.json, checked
+// against the LeRobot info.json features the API attaches: a dims mismatch is flagged, real info.json names are
+// listed, and a float feature the curated table does not cover gets its own group straight from info.json.
+async function renderConventions() {
+  const sid = state.source, card = $("#conv-card"), body = $("#conv-body");
+  card.hidden = true;
+  body.innerHTML = "";
+  let c;
+  try { c = await api(`${apiBase()}/conventions`); } catch (_) { return; }   // the card is optional; stays hidden
+  if (state.source !== sid) return;
+  const cur = c.curated || {}, feats = c.features || [];
+  const groups = (cur.groups || []).map((g) => ({ ...g, feats: [] }));
+  const extra = [];
+  feats.forEach((f) => {
+    const g = groups.find((x) => x.key.split(/\s*\/\s*/).includes(f.key));
+    if (g) g.feats.push(f); else extra.push(f);
+  });
+  extra.forEach((f) => groups.push({
+    key: f.key, dims: f.dims, feats: [f],
+    axes: f.names ? f.names.map((n, i) => [String(i), n, "", ""])
+      : [[f.dims > 1 ? `0-${f.dims - 1}` : "0", "(no per-axis names in info.json)", "", "unverified"]],
+  }));
+  if (!groups.length && !cur.frame) return;
+  card.hidden = false;
+  $("#conv-hint").textContent = c.features_from ? "curated + info.json" : "curated";
+  $("#conv-hint").title = c.features_from || "raiden_viz/conventions.json";
+  if (cur.frame) body.appendChild(el("p", "conv-frame", cur.frame));
+  const facts = el("div", "conv-facts");
+  if (cur.rate) facts.appendChild(el("span", "cat-fmt", cur.rate));
+  if (cur.verified) facts.appendChild(el("span", "conv-verified", `Checked: ${cur.verified}`));
+  if (facts.childNodes.length) body.appendChild(facts);
+  const table = el("table", "conv-table");
+  table.innerHTML = "<thead><tr><th>Axis</th><th>Name</th><th>Unit / range</th><th>Meaning</th></tr></thead>";
+  const tb = el("tbody");
+  groups.forEach((g) => {
+    const head = el("tr", "conv-group");
+    const th = el("td"); th.colSpan = 4;
+    th.appendChild(el("span", "mono", g.key));
+    th.appendChild(el("span", "conv-dims", `${g.dims}-D`));
+    g.feats.filter((f) => f.dims !== g.dims).forEach((f) =>
+      th.appendChild(el("span", "conv-flag", `info.json: ${f.key} is ${f.dims}-D`)));
+    const named = g.feats.find((f) => f.names);
+    if (named) th.appendChild(el("div", "conv-names mono", `info.json names: ${named.names.join(", ")}`));
+    head.appendChild(th); tb.appendChild(head);
+    g.axes.forEach((row) => {
+      const tr = el("tr");
+      row.forEach((v, i) => tr.appendChild(el("td", v.includes("unverified") ? "conv-unv" : i < 2 ? "mono" : null, v)));
+      tb.appendChild(tr);
+    });
+  });
+  table.appendChild(tb);
+  body.appendChild(table);
 }
 
 /* ---------------- Overview: per-task breakdown ---------------- */
@@ -2473,7 +2571,7 @@ function renderPlots(robot) {
   state.robotDuration = 0;
   if (!robot || !robot.signals || !Object.keys(robot.signals).length) {
     $("#plot-summary").textContent = "";
-    notAvailable(wrap, "No robot trajectories available for this episode.");
+    notAvailable(wrap, "No state or action signals for this episode.");
     return;
   }
   const s = robot.summary || {};

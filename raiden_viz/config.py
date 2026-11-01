@@ -252,3 +252,8 @@ SCAN_PERSIST_TTL_S = float(os.environ.get("RAIDEN_SCAN_PERSIST_TTL_S", str(3 * 8
 # in the background once older than this, so a dataset uploaded without a rebuild
 # still shows up; warm/rebuild endpoints refresh it immediately.
 SOURCE_INDEX_TTL_S = float(os.environ.get("RAIDEN_SOURCE_INDEX_TTL_S", str(6 * 3600)))
+
+# Curated state/action conventions per source (conventions.json: axis tables + frame/rate notes, each saying what was
+# verified on S3). A string entry aliases another source's entry; "_doc" is the file's own note.
+_conv = _json.loads(Path(__file__).with_name("conventions.json").read_text())
+CONVENTIONS = {k: (_conv[v] if isinstance(v, str) else v) for k, v in _conv.items() if not k.startswith("_")}

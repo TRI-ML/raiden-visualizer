@@ -36,6 +36,16 @@ ANNOTATED = {**DETAIL, "episode": "chunk_000__episode_000003",
              "annotations": [{"t": 0.5, "text": "reach for the spoon"}, {"t": 6.0, "text": "grasp the spoon"},
                              {"t": 11.0, "text": "place it in the drawer"}]}
 
+# /conventions: a curated table plus the info.json features (state covered and named, action covered but 3-D in
+# info.json, joint_state not covered -> its own group from info.json)
+CONV = {"curated": {"frame": "Joint space, 2-D per arm.", "rate": "30 Hz", "verified": "fixture",
+                    "groups": [{"key": "observation.state / action", "dims": 2,
+                                "axes": [["0", "joint 1", "rad", "shoulder"], ["1", "gripper", "0-1", "unverified polarity"]]}]},
+        "features": [{"key": "observation.state", "dims": 2, "names": ["j1", "grip"]},
+                     {"key": "action", "dims": 3, "names": None},
+                     {"key": "joint_state", "dims": 2, "names": None}],
+        "features_from": "s3://b/p/meta/info.json"}
+
 
 def _route(route):
     url = route.request.url
@@ -45,6 +55,7 @@ def _route(route):
     elif path == "api/catalog": body = CATALOG
     elif path in ("api/contrib", "api/raiden_teachers"): return route.fulfill(status=404, body="{}")
     elif path == "api/sources/demo/stats": body = STATS
+    elif path == "api/sources/demo/conventions": body = CONV
     elif path == "api/sources/demo/tasks": body = {"tasks": [TASK["task"]]}
     elif path == "api/sources/demo/overview": body = {"bucket": "b", "prefix": "p", "region": "us-west-2", "num_episodes": 2, "num_tasks": 1, "tasks": [TASK], "stations": []}
     elif path.endswith("/episodes"): body = {"episodes": ["chunk_000__episode_000001", "chunk_000__episode_000003"], "total": 2, "featured": False}
@@ -101,7 +112,67 @@ def test_catalog_renders_and_theme_toggle_persists(browser, site):
     # every colour goes through a token: the light sheet changes the page background
     bg = page.evaluate("getComputedStyle(document.body).backgroundColor")
     assert bg == "rgb(245, 246, 249)", bg
+    page.wait_for_selector(".cat-card")   # the sidebar is hidden behind the loader until the catalog lands
     assert page.locator("#brand-home").inner_text().split() == ["Robot", "Datasets"]
+    page.close()
+
+
+def test_loader_hides_the_ui_until_data_lands(browser, site):
+    page = _open(browser, site)
+    page.wait_for_selector(".cat-card")
+    assert not page.evaluate("document.body.classList.contains('is-loading')")
+    assert page.locator("#loader").is_hidden() and page.locator("#main").is_visible()
+    page.evaluate("setLoading(true)")                 # what a dataset switch / first paint shows: only the robot
+    assert page.locator("#loader").is_visible() and page.locator("#loader svg.robot").is_visible()
+    assert page.locator("#main").is_hidden() and page.locator("#sidebar").is_hidden()
+    assert page.locator("#loader").inner_text().startswith("Loading")
+    page.screenshot(path=str(SHOTS / "rv_loader.png"))
+    page.evaluate("showCatalog()")                    # back home: loads, then fades the UI back in
+    page.wait_for_selector(".cat-card")
+    assert page.locator("#loader").is_hidden()
+    page.close()
+
+
+def test_compare_bars_grow_in_unless_reduced_motion(browser, site):
+    page = _open(browser, site)
+    page.wait_for_selector(".cat-card")
+    page.wait_for_function("state.catBarsGrown === 1", timeout=3000)     # grew on load
+    page.evaluate("drawCatalogBars('episodes')")                         # same rows (theme switch / poll): in place
+    page.click('#cat-metric-toggle [data-metric="hours"]')               # a new metric grows again
+    page.wait_for_function("state.catBarsGrown === 2", timeout=3000)
+    page.close()
+    page = browser.new_page(viewport={"width": 1400, "height": 900}, reduced_motion="reduce")
+    page.route("**/api/**", _route)
+    page.goto(f"{site}/index.html", wait_until="domcontentloaded")
+    page.wait_for_selector(".cat-card")
+    page.wait_for_timeout(900)
+    assert page.evaluate("state.catBarsGrown") is None                   # drawn at full width, no tween
+    page.close()
+
+
+def test_state_action_convention_card(browser, site):
+    page = _open(browser, site, "#demo")
+    page.wait_for_selector("#conv-card .conv-table")
+    card = page.locator("#conv-card")
+    assert card.is_visible()                                             # shown open on the dataset page
+    assert "Joint space, 2-D per arm." in card.inner_text() and "30 Hz" in card.inner_text()
+    groups = card.locator(".conv-group")
+    assert groups.count() == 2                                           # curated group + uncovered joint_state
+    assert "info.json names: j1, grip" in groups.nth(0).inner_text()
+    assert "action is 3-D" in groups.nth(0).inner_text()                 # dims mismatch flagged
+    assert "joint_state" in groups.nth(1).inner_text()
+    assert card.locator("td.conv-unv").count() == 2                      # gripper meaning + the unnamed joint_state row
+    card.screenshot(path=str(SHOTS / "rv_conventions.png"))
+    page.close()
+
+
+def test_catalog_error_still_shows_its_message(browser, site):
+    page = browser.new_page(viewport={"width": 1400, "height": 900})
+    page.route("**/api/**", lambda r: r.fulfill(status=500, body='{"error": "boom"}')
+               if "api/catalog" in r.request.url else _route(r))
+    page.goto(f"{site}/index.html", wait_until="domcontentloaded")
+    page.wait_for_selector("#cat-grid :text('Failed to load catalog')")
+    assert page.locator("#loader").is_hidden()
     page.close()
 
 
@@ -140,6 +211,7 @@ def test_episode_view_renders_camera_grid_and_generic_names(browser, site):
     page.wait_for_selector("#camera-grid .cam-tile")
     assert page.locator("#camera-grid .cam-tile").count() == 2
     assert "put the spoon" in page.locator("#ep-instruction").inner_text()
+    assert "trajector" not in page.locator("body").inner_text().lower()   # the phrase is gone from the UI (user)
     # the sidebar episode rows read "episode 1", not the raw chunk path; the tag filter shows the task's tags
     assert "episode 1" in page.locator("#episode-list li").first.inner_text()
     page.evaluate("applyTheme('dark')")
