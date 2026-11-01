@@ -500,7 +500,7 @@ async function renderCatalog() {
     ["Hours", a.total_hours
       ? `${data.datasets.some((d) => d.sampled) ? "~" : ""}${a.total_hours.toLocaleString()}`
       : "—"],
-    ["With annotations", a.with_annotations],
+    // "With annotations" tile dropped (user, 2026-11-01)
   ].map(([k, v]) => `<div class="cat-stat"><div class="cat-stat-v">${v}</div><div class="cat-stat-k">${k}</div></div>`).join("");
 
   grid.innerHTML = "";
