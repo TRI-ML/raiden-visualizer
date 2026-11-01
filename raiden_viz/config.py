@@ -189,6 +189,9 @@ CACHE_MAX_GB = float(os.environ.get("RAIDEN_CACHE_MAX_GB", "8"))
 # tier disabled = exactly the pre-existing local-only behaviour, which is what keeps
 # a laptop checkout and the aws-anthony-1 box working unchanged.
 DERIVED_BUCKET = os.environ.get("RAIDEN_DERIVED_BUCKET", "")
+# On-demand clip decodes running at once per container. A crawler decoding thousands of non-featured abc130k_val
+# episodes OOM-looped the hosted dev task (2026-11-01); hosted (derived bucket set) defaults to 2, elsewhere unlimited.
+MAX_DECODES = int(os.environ.get("RAIDEN_MAX_DECODES", "2" if DERIVED_BUCKET else "0"))
 DERIVED_PREFIX = os.environ.get("RAIDEN_DERIVED_PREFIX", "derived").strip("/")
 # Presigned-URL lifetime. Long enough to scrub through a clip, short enough that a
 # copied link is not a durable handle to dataset content.

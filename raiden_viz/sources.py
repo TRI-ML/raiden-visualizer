@@ -1230,6 +1230,10 @@ class YamMcapSource(Source):
         return base
 
 
+class IndexNotReady(RuntimeError):
+    """The LeRobot source index blob is missing and its build job is queued (see LeRobotSource.source_index)."""
+
+
 class LeRobotSource(Source):
     """LeRobot v3.0 datasets: ``<prefix>/<task>[/<subdir>]/{meta,data,videos}``.
 
@@ -1285,22 +1289,34 @@ class LeRobotSource(Source):
 
     def list_tasks(self) -> list[str]:
         # From the source index (one S3 GET per container) rather than a listing
-        # plus one HEAD per folder on every call.
-        return [t["task"] for t in self.source_index()["tasks"]]
+        # plus one HEAD per folder on every call. Empty while the index is still being built.
+        return [t["task"] for t in (self.source_index() or {"tasks": []})["tasks"]]
+
+    def list_episodes(self, task: str) -> list[str]:
+        # The index carries each task's sorted episode indices, so browsing never loads the task's meta (RealOmni's
+        # biggest session has 589k rows) into the API process; a task not indexed yet falls back to the meta.
+        idx = self.source_index()
+        row = next((r for r in idx["tasks"] if r["task"] == task), None) if idx else None
+        if row is not None and row.get("episode_indices") is not None:
+            return [self._ep_name(i) for i in row["episode_indices"]]
+        return [self._ep_name(i) for i in sorted(self._meta(task)["episodes"])]
 
     # ---- source index: everything the overview / stats / browse pages need ------
 
-    SOURCE_INDEX_V = 4   # v3: per-task preview (episode, camera, artifact names) + facts; v4: robot_type on the stat records
+    # v3: per-task preview (episode, camera, artifact names) + facts; v4: robot_type on the stat records;
+    # v5: per-task episode indices + a bounded stat SAMPLE instead of every episode's record (RealOmni's 182 MB blob
+    #     was loaded into the API process; the full records never left the child that built it).
+    SOURCE_INDEX_V = 5
 
     def _source_blob(self) -> str:
         return f"lerobot_source_{self.id}_v{self.SOURCE_INDEX_V}.json"
 
-    def source_index(self) -> dict:
-        """{built_at, tasks: [{task, ikey, episodes, latest, cameras, fps}], stats: [...]}.
-        Memoized per container; read from the derived tier; built (once) and
-        published when absent. Refreshed in the background once older than
-        SOURCE_INDEX_TTL_S, so a dataset uploaded without an explicit rebuild still
-        appears — the stale index is served meanwhile."""
+    def source_index(self) -> dict | None:
+        """{built_at, tasks: [{task, ikey, episodes, episode_indices, latest, cameras, fps, preview, facts}],
+        sample: [stat records, <= STATS_MAX], total}. Memoized per container; read from the derived tier. NEVER built
+        on the request path: when the blob is missing this returns None and queues the ``index`` job (a niced child,
+        see jobs.run), and the routes answer "computing" meanwhile. Refreshed the same way once older than
+        SOURCE_INDEX_TTL_S, the stale index being served meanwhile."""
         with self._index_lock:
             idx = self._source_index
             if idx is None:
@@ -1309,13 +1325,20 @@ class LeRobotSource(Source):
                     idx = None
                 self._source_index = idx
         if idx is None:
-            return self.rebuild_source_index()
+            self._request_index_build()
+            return None
         if time.time() - float(idx.get("built_at", 0)) > config.SOURCE_INDEX_TTL_S \
                 and not idx.get("_refreshing"):
             idx["_refreshing"] = True
-            threading.Thread(target=self._safe_rebuild_index, daemon=True,
-                             name=f"index-{self.id}").start()
+            self._request_index_build()
         return idx
+
+    def _request_index_build(self) -> None:
+        """One background build: the ``index`` job (child process) on a server; a thread when jobs run inline (tests)."""
+        if jobs.INLINE:
+            threading.Thread(target=self._safe_rebuild_index, daemon=True, name=f"index-{self.id}").start()
+        else:
+            jobs.start("index", self.id)
 
     def _safe_rebuild_index(self):
         try:
@@ -1324,20 +1347,24 @@ class LeRobotSource(Source):
             log.exception("source index rebuild failed for %s", self.id)
 
     def rebuild_source_index(self) -> dict:
-        """List the datasets, load (or restore) each task's meta, and publish one
-        JSON with per-task facts plus every episode's stat record."""
-        tasks, stats = [], []
-        for t in self._list_tasks_raw():
+        """List the datasets, load (or restore) each task's meta, and publish one JSON with per-task facts and
+        episode indices plus a bounded sample of stat records. Streams one task at a time: a task's records are
+        sampled and dropped before the next task loads, so the peak is one task's meta + records, not the source."""
+        raw = self._list_tasks_raw()
+        tasks, sample, total = [], [], 0
+        for t in raw:
             try:
                 meta = self._meta(t)
-                names = self.list_episodes(t)
+                names = [self._ep_name(i) for i in sorted(meta["episodes"])]
             except Exception:
                 log.exception("source index: skipping %s", t)
                 continue
             info = meta["info"]
             cams = list(info.get("cameras", []))
             recs = [r for r in (self.episode_stat(t, n) for n in names) if r]
-            stats.extend(recs)
+            total += len(recs)
+            quota = max(1, self.STATS_MAX // max(1, len(raw)))      # every task represented in the sample
+            sample.extend(recs if len(recs) <= quota else recs[::max(1, len(recs) // quota)][:quota])
             durs = sorted(r["duration_s"] for r in recs if r.get("duration_s") is not None)
             status_counts: dict[str, int] = {}
             for r in recs:
@@ -1362,14 +1389,17 @@ class LeRobotSource(Source):
                     preview["poster_names"] = {c: poster_name(manifest[f"{names[0]}|{c}"])
                                                for c in cams if f"{names[0]}|{c}" in manifest}
             tasks.append({"task": t, "ikey": meta.get("ikey"), "episodes": len(names),
+                          "episode_indices": sorted(meta["episodes"]),
                           "latest": names[-1] if names else None,
                           "cameras": cams, "fps": info.get("fps"),
                           "preview": preview,
                           "facts": {"episodes": len(names), "cameras": cams, "fps": info.get("fps"),
                                     "duration_median_s": durs[len(durs) // 2] if durs else None,
                                     "status_counts": status_counts}})
+            del recs                                             # one task's records at a time
+            self._meta_cache.pop(t, None) if len(raw) > 1 else None   # and one task's meta (RealOmni s3: 589k rows)
         idx = {"v": self.SOURCE_INDEX_V, "built_at": time.time(), "source": self.id,
-               "tasks": tasks, "stats": stats}
+               "tasks": tasks, "sample": sample, "total": total}
         cache.put_json(self._source_blob(), idx, remote=True)
         with self._index_lock:
             self._source_index = idx
@@ -1379,8 +1409,17 @@ class LeRobotSource(Source):
             log.exception("preview prune failed for %s", self.id)
         return idx
 
+    def overview(self) -> dict:
+        try:
+            return super().overview()
+        except IndexNotReady:          # never cached: the index job fills the blob, the next call serves it
+            return {"source": self.id, "bucket": self.bucket, "prefix": self.prefix, "computing": True,
+                    "num_tasks": 0, "num_episodes": 0, "stations": [], "tasks": [], "built_at": 0}
+
     def _build_overview(self) -> dict:
         idx = self.source_index()
+        if idx is None:
+            raise IndexNotReady(self.id)
         per_task = [{"task": t["task"], "episodes": t["episodes"], "latest": t["latest"],
                      "featured": min(t["episodes"], config.FEATURED_N),
                      "collected_start": None, "collected_end": None,
@@ -1393,14 +1432,16 @@ class LeRobotSource(Source):
             "stations": [], "tasks": per_task,
         }
 
-    def stats(self, full: bool = False, wait: bool = True) -> dict:
-        # Every episode's record is in the source index already: no per-episode work,
-        # no sampling, nothing to wait for.
-        eps = list(self.source_index()["stats"])   # episode_stat records, robot_type included since index v4
-        total = len(eps)
-        if not full and total > self.STATS_MAX:          # keep the chart payload bounded
-            step = max(1, total // self.STATS_MAX)
-            eps = eps[::step]
+    def stats(self, full: bool = False, wait: bool = True) -> dict | None:
+        # The index already holds a bounded sample of stat records (v5; "stats" = every record in older blobs):
+        # no per-episode work, nothing to wait for. None while the index is being built (the route says computing).
+        idx = self.source_index()
+        if idx is None:
+            return None
+        eps = list(idx.get("sample") or idx.get("stats") or [])
+        total = int(idx.get("total") or len(eps))
+        if not full and len(eps) > self.STATS_MAX:          # keep the chart payload bounded
+            eps = eps[::max(1, len(eps) // self.STATS_MAX)]
         return {"num_episodes": len(eps), "total_episodes": total, "scanned": len(eps),
                 "sampled": len(eps) < total, "episodes": eps,
                 "summary": summarize(eps, total, self.overview().get("tasks", []))}
@@ -1475,9 +1516,6 @@ class LeRobotSource(Source):
                 m = self._load_meta(task)
                 self._meta_cache[task] = m
             return m
-
-    def list_episodes(self, task: str) -> list[str]:
-        return [self._ep_name(i) for i in sorted(self._meta(task)["episodes"])]
 
     def _row(self, task: str, episode: str) -> tuple[dict, dict]:
         meta = self._meta(task)

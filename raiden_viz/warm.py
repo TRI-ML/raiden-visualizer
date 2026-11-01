@@ -35,6 +35,8 @@ def main(argv=None) -> int:
     ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--featured", action="store_true", help="only each task's featured episodes (any source kind)")
     args = ap.parse_args(argv)
+    from . import argus
+    argus.BUILD_INLINE = True        # the CLI is the builder; it parses Argus tables and builds indexes inline
     if not args.task and not args.all:
         ap.error("give --task or --all")
 

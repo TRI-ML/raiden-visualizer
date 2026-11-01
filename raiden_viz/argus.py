@@ -12,8 +12,9 @@ import io
 import re
 import threading
 
-from . import cache, config, s3
+from . import cache, config, jobs, s3
 
+BUILD_INLINE = False   # True in the warm CLI and the jobs child: parse label tables here. A server only reads blobs.
 SOURCE = "argus:sol61"          # Sol's sub-tasks: boundaries within 3 s of 97 % of the human ones (campaign README §4.4)
 _lock = threading.Lock()
 _repos: dict[str, dict] = {}    # sid -> {task: repo_name}
@@ -44,7 +45,9 @@ def _repos_for(spec: dict, task: str) -> list[str]:
 
 
 def _load(spec: dict, repo: str) -> dict:
-    """{stem | str(episode_index): [[t_s, text], ...]} for one repo table; parsed once, persisted as JSON."""
+    """{stem | str(episode_index): [[t_s, text], ...]} for one repo table; parsed once, persisted as JSON. On a
+    server (BUILD_INLINE false) a missing blob is NOT parsed on the request: the ``index`` job builds every repo's
+    blob (jobs.run) and this returns {} meanwhile — RealOmni's tables cover 589k episodes."""
     a = spec["argus"]
     key = f"{spec['id']}/{repo}"
     with _lock:
@@ -53,6 +56,9 @@ def _load(spec: dict, repo: str) -> dict:
         return hit
     name = f"argus_{spec['id']}_{repo}.json"
     tbl = cache.get_json(name, remote=True)
+    if tbl is None and not BUILD_INLINE:
+        jobs.start("index", spec["id"])
+        return {}
     if tbl is None:
         import pyarrow.parquet as pq
         bucket = a.get("bucket") or config.S3_BUCKET

@@ -118,8 +118,23 @@ def run(kind: str, sid: str, task: str | None, params: dict, src=None) -> None:
 
     flush(True)
     try:
+        from . import argus
+        argus.BUILD_INLINE = True            # the child may parse label tables; the API process never does
         src = src or sources.get_source(config.SOURCES, sid)
-        if kind == "featured":
+        if kind == "index":
+            # LeRobot source index (streamed per task) + every Argus label table the source joins, so the API
+            # process only ever READS these blobs. Other kinds just need the source resolved.
+            idx = src.rebuild_source_index()
+            tasks = [r["task"] for r in idx["tasks"]]
+            st["total"] = len(tasks)
+            for i, t in enumerate(tasks, 1):
+                if src.spec.get("argus"):
+                    for repo in argus._repos_for(src.spec, t):
+                        argus._load(src.spec, repo)
+                st["completed"] = i
+                flush()
+            st["result"] = {"tasks": len(tasks), "episodes": idx.get("total")}
+        elif kind == "featured":
             tasks = src.list_tasks()
             st["total"] = len(tasks)
             for i, t in enumerate(tasks, 1):

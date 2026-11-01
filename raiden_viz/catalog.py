@@ -139,7 +139,7 @@ def _pick_preview(src, cams: list[str]) -> dict | None:
                 if task in pv:
                     return {"task": task, **pv[task]}
         if hasattr(src, "source_index"):
-            for t in src.source_index().get("tasks", []):
+            for t in (src.source_index() or {}).get("tasks", []):
                 if t.get("preview"):
                     return {"task": t["task"], **t["preview"]}
             return None
