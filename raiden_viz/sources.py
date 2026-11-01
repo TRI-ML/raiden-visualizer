@@ -665,9 +665,72 @@ class Source:
         }
 
 
+# Raiden 2.0 = the harvest corpus collected through the yam-eval console against Task Hub tasks. The recordings
+# carry no collector field, so the split is read off three signals that all flip with that flow (survey of every
+# task on 2026-10-31): the recorder writes `camera_config` (yam-robot, from 2026-06-30), the task is a Task Hub
+# CamelCase name, and the newest episode is from 2026-08-05 or later (the console's data-collection tab landed
+# in yam-eval 83240b1). shortcut: a task is classified as a whole from its newest episode; upgrade to per-episode
+# when a task is found to mix both eras.
+HARVEST_SINCE = "2026-08-05"
+_TASK_HUB_NAME = re.compile(r"^[A-Z][a-z0-9]+(?:[A-Z][A-Za-z0-9]*)+$")
+
+
+def is_harvest_task(task: str, newest_metadata: dict | None) -> bool:
+    md = newest_metadata or {}
+    return bool(_TASK_HUB_NAME.match(task) and md.get("camera_config") is not None
+                and str(md.get("timestamp") or "") >= HARVEST_SINCE)
+
+
 class RaidenSource(Source):
+    """`split` in the spec ("legacy" | "harvest") restricts the source to one era of a shared prefix (see
+    is_harvest_task); without it every task is listed."""
+    SPLIT_TTL_S = 600
+
+    def __init__(self, spec):
+        super().__init__(spec)
+        self.split = spec.get("split")
+        self._split_lock = threading.Lock()
+        self._split_at = 0.0
+        self._split_map: dict[str, bool] = {}
+
     def _ep_prefix(self, task, episode):
         return f"{self.prefix}/{task}/{episode}"
+
+    def _harvest_map(self) -> dict[str, bool]:
+        """{task: is_harvest} for every task dir; re-derived (two metadata reads per task) only when a task's
+        episode count changed. Persisted in the derived tier so containers share it."""
+        with self._split_lock:
+            if time.time() - self._split_at < self.SPLIT_TTL_S:
+                return self._split_map
+            key = f"raiden_split_{re.sub(r'[^A-Za-z0-9_.-]', '_', self.prefix)}.json"
+            blob = cache.get_json(key, remote=True) or {}
+            out, changed = {}, False
+            for task in s3.list_dirs(self.prefix, bucket=self.bucket):
+                eps = sorted(s3.list_dirs(f"{self.prefix}/{task}", bucket=self.bucket))
+                hit = blob.get(task)
+                if hit and hit.get("n") == len(eps):
+                    out[task] = hit["harvest"]
+                    continue
+                md = s3.try_get_json(f"{self.prefix}/{task}/{eps[-1]}/metadata.json", bucket=self.bucket) if eps else None
+                out[task] = is_harvest_task(task, md)
+                blob[task] = {"n": len(eps), "harvest": out[task]}
+                changed = True
+            if changed:
+                cache.put_json(key, blob, remote=True)
+            self._split_map, self._split_at = out, time.time()
+            return out
+
+    def _in_split(self, task: str) -> bool:
+        if not self.split:
+            return True
+        return self._harvest_map().get(task, False) == (self.split == "harvest")
+
+    def list_tasks(self) -> list[str]:
+        tasks = super().list_tasks()
+        return [t for t in tasks if self._in_split(t)] if self.split else tasks
+
+    def list_episodes(self, task: str) -> list[str]:
+        return super().list_episodes(task) if self._in_split(task) else []
 
     def episode_time(self, task: str, episode: str) -> str | None:
         # The recorder's own capture stamp, from the ~1 KB metadata.json (via the
