@@ -546,7 +546,11 @@ async function renderCatalog() {
       : failed ? failBadge(c.error)
       : c.annotations === "yes" || (c.annotated_frac || 0) > 0
         ? `<span class="cat-fmt cat-ann ann-yes">Annotated${c.annotated_frac != null && c.annotated_frac < 0.995 ? ` ${Math.round(c.annotated_frac * 100)} %` : ""}</span>` : "";
-    if (annPill) card.querySelector(".cat-pills").insertAdjacentHTML("beforeend", annPill);   // camera list + s3 path hidden on the card (user, 2026-10-31); `cams` kept for the title below
+    if (annPill) card.querySelector(".cat-pills").insertAdjacentHTML("beforeend", annPill);
+    if ((c.argus_frac || 0) > 0) {   // Zheyuan's Argus sub-task labels (model-written), share of episodes covered
+      const pct = Math.round(c.argus_frac * 100);
+      card.querySelector(".cat-pills").insertAdjacentHTML("beforeend", `<span class="cat-fmt cat-ann argus">Argus${pct < 99.5 ? ` ${pct} %` : ""}</span>`);
+    }   // camera list + s3 path hidden on the card (user, 2026-10-31); `cams` kept for the title below
     card.title = `${cams}${c.bucket ? ` · s3://${c.bucket}/${c.prefix ?? ""}` : ""}`;
     // Preview chosen at build time (stored on the card): poster now, clip on hover.
     const head = card.querySelector(".cat-card-head");
@@ -970,6 +974,7 @@ async function renderOverview() {
     tile("ov-median-num", "…", "Median length");
     tile("ov-eptask-num", "…", "Episodes / task");
     tile("ov-annot-num", "…", "Annotated episodes").id = "ov-annot-tile";
+    tile("ov-argus-num", "…", "Argus labels").id = "ov-argus-tile";
 
     state.overviewTasks = ov.tasks;  // per-task totals, for extrapolating hours
     if (state.task) renderTaskHead(state.task);   // deep link landed before the overview
@@ -1366,6 +1371,8 @@ function fillSummaryTiles(stats) {
   numEl.title = est ? `Estimated from ${stats.scanned} sampled episodes × ${(stats.total_episodes || 0).toLocaleString()} episodes` : "";
   set("#ov-median-num", s.median_duration_s == null ? "—" : `${s.median_duration_s} s`);
   set("#ov-eptask-num", s.episodes_per_task_median == null ? "—" : String(Math.round(s.episodes_per_task_median)));
+  $("#ov-argus-tile").hidden = s.argus_episodes == null;
+  set("#ov-argus-num", s.argus_episodes == null ? "—" : s.argus_episodes.toLocaleString());
   $("#ov-annot-tile").hidden = s.annotated_episodes == null;
   set("#ov-annot-num", s.annotated_episodes == null ? "—" : (s.annotated_exact || !est ? "" : "~") + s.annotated_episodes.toLocaleString());
   const eps = (stats.episodes || []).filter((e) => e.duration_s != null);

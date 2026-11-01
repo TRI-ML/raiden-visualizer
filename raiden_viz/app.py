@@ -193,12 +193,15 @@ def get_catalog():
         live = {"label": spec["label"], "kind": spec["kind"], "prod": spec.get("prod", True), "origin": spec.get("origin")}
         if spec.get("embodiments"):   # config wins over whatever the frozen card recorded
             live["embodiments"] = spec["embodiments"]
-        if spec.get("annotation_sidecar"):   # exact label share from the (persisted) overview, not the frozen card
+        if spec.get("annotation_sidecar") or spec.get("argus"):   # exact label shares from the (persisted) overview
             ov = src.overview_peek() or {}
             frac = catalog._annotated_frac(ov.get("tasks") or [])
             if frac is not None:
                 live["annotated_frac"] = frac
                 live["annotations"] = "yes" if frac > 0 else "none"
+            afrac = catalog._annotated_frac(ov.get("tasks") or [], "argus_annotated")
+            if afrac is not None:
+                live["argus_frac"] = afrac
         cards.append({**base, **live})
     agg = {
         "num_datasets": len(cards),

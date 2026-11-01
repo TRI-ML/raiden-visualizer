@@ -32,7 +32,7 @@ import logging
 
 from botocore.exceptions import ClientError
 
-from . import cache, calib_overlay, config, fk, lerobot, previews, robot_data, s3, svo, webbed, yam, jobs
+from . import argus, cache, calib_overlay, config, fk, lerobot, previews, robot_data, s3, svo, webbed, yam, jobs
 
 # In-flight/finished background stat scans, keyed by a per-source scan id. Held in
 # memory (a scan is cheap to restart and its per-episode records are disk-cached).
@@ -157,6 +157,8 @@ def summarize(episodes: list, total: int, tasks: list) -> dict:
         "unique_tasks": len(tasks) if tasks else None,
         "annotated_episodes": annotated,
         "annotated_exact": bool(exact),
+        "argus_episodes": sum(t["argus_annotated"] for t in tasks if t.get("argus_annotated") is not None)
+        if any(t.get("argus_annotated") is not None for t in tasks) else None,
         "embodiments": embodiments(e.get("robot_type") for e in episodes),   # [] when the records carry none
     }
 
@@ -1043,10 +1045,12 @@ class YamMcapSource(Source):
         # ABC-130k ships labels as a sibling annotation.mcap for a THIRD of its episodes (train report: 42,980 of
         # 129,032); count the sidecars exactly from one recursive listing per task. Persisted with the overview,
         # so it costs ~260 LIST pages once per rebuild. Inline-label sets (XDOF) carry no sidecar → not reported.
-        if not self.spec.get("annotation_sidecar"):
-            return {}
-        n = sum(1 for _ in s3.list_keys(f"{self.prefix}/{task}", bucket=self.bucket, suffix="annotation.mcap"))
-        return {"annotated": n}
+        out = {}
+        if self.spec.get("annotation_sidecar"):
+            out["annotated"] = sum(1 for _ in s3.list_keys(f"{self.prefix}/{task}", bucket=self.bucket, suffix="annotation.mcap"))
+        if self.spec.get("argus"):
+            out["argus_annotated"] = argus.coverage(self.spec, task, self.list_episodes(task))
+        return out
 
     def episode_time(self, task: str, episode: str) -> str | None:
         # A HEAD on the MCAP: no download, and its LastModified is the closest
@@ -1162,7 +1166,7 @@ class YamMcapSource(Source):
             "instruction": ex.get("instruction"), "status": None,
             "metadata": metadata,
             "calibration": sidecar.get("calibration"), "cameras": cameras,
-            "robot": ex.get("robot"), "annotations": ex.get("annotations") or [],
+            "robot": ex.get("robot"), "annotations": ex.get("annotations") or argus.annotations_for(self.spec, task, episode),
         }
 
     def video_cache_name(self, task, episode, camera, eye):
@@ -1234,6 +1238,11 @@ class LeRobotSource(Source):
     episode's window — unless the source file is ALREADY H.264 4:2:0 and holds exactly
     this one episode, in which case it is stream-copied (no decode; see video_path).
     Per-task metadata (info/tasks/episodes) is small and read once, then memoized."""
+
+    def task_facts(self, task: str) -> dict:
+        if not self.spec.get("argus"):
+            return {}
+        return {"argus_annotated": argus.coverage(self.spec, task, self.list_episodes(task))}
 
     def __init__(self, spec: dict):
         super().__init__(spec)
@@ -1503,7 +1512,7 @@ class LeRobotSource(Source):
     def _build_detail(self, task: str, episode: str, meta: dict, row: dict, tbl) -> dict:
         info = meta["info"]
         robot = lerobot.build_robot(tbl, info)
-        annotations = lerobot.subtasks_to_annotations(tbl)
+        annotations = lerobot.subtasks_to_annotations(tbl) or argus.annotations_for(self.spec, task, episode)
         instruction = lerobot.instruction_for(tbl, meta["tasks"], row)
         cameras = [{"name": c, "has_video": True, "eyes": ["left"]} for c in info["cameras"]]
         metadata = {"num_annotations": len(annotations)}

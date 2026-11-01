@@ -117,7 +117,7 @@ def test_summarize_extrapolates_hours_and_hides_unknown_annotations():
     s = sources.summarize(eps, 100, [{"episodes": 60}, {"episodes": 40}])
     assert s == {"hours": round(60.0 * 100 / 3600, 1), "estimated": True, "median_duration_s": 60.0,
                  "episodes_per_task_median": 50, "unique_tasks": 2, "annotated_episodes": None, "annotated_exact": False,
-                 "embodiments": []}
+                 "argus_episodes": None, "embodiments": []}
     assert sources.summarize([], 0, [])["hours"] is None
 
 

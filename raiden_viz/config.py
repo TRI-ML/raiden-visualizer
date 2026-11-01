@@ -16,6 +16,7 @@ AWS_REGION = os.environ.get("RAIDEN_AWS_REGION", "us-west-2")
 #   raiden_rollouts: the same files under <prefix>/<lead dirs…>/<task>/rollout_NNNN (yam-eval policy rollouts)
 #   yam:     <prefix>/<task>/episode_<uuid>/<mcap_name>  (one Foxglove-protobuf MCAP)
 #   lerobot: <prefix>/<task>[/<subdir>]/{meta,data,videos}  (LeRobot v3.0: packed parquet + video)
+# argus: Zheyuan Hu's Argus sub-task labels (geyan/argus mirror, see argus.py) shown when an episode has no native labels.
 # origin: "tri" = collected at TRI, "open" = public open-source dataset, "purchased" = bought from a vendor
 # (shown as a chip on the catalog cards and the dataset page; user, 2026-10-31).
 # embodiments: robots in the set, shown as pills; when absent (worldengine) they are derived from the LeRobot
@@ -54,12 +55,14 @@ SOURCES = [
     # ABC-130k: the full open-source YAM dataset (xdof/Amazon). Same Foxglove-MCAP
     # format as the yam source but with episode.mcap files, newer topic names
     # (/<cam>, -state) and H.265 video — all handled by the yam adapter/decoder.
-    {"id": "abc130k", "origin": "open", "embodiments": ["YAM"], "annotation_sidecar": True, "label": "ABC-130k (train)", "kind": "yam", "bucket": S3_BUCKET,
+    {"id": "abc130k", "origin": "open", "embodiments": ["YAM"], "annotation_sidecar": True,
+     "argus": {"tables": "geyan/argus/argus_labels/abc130k/abc_v1/tables_v3ar", "repo_prefix": "abc130k_t"}, "label": "ABC-130k (train)", "kind": "yam", "bucket": S3_BUCKET,
      "prefix": "vla_foundry_datasets_test/raw_datasets_bot/abc-130k/data/train", "mcap_name": "episode.mcap"},
     # The public yam_public/ABC-130k mirror carries a val split (same episode.mcap
     # layout + content as the train mirror above, 189 tasks) that our train-only
     # source doesn't expose. Same yam adapter.
-    {"id": "abc130k_val", "origin": "open", "embodiments": ["YAM"], "annotation_sidecar": True, "label": "ABC-130k (val)", "kind": "yam", "bucket": S3_BUCKET,
+    {"id": "abc130k_val", "origin": "open", "embodiments": ["YAM"], "annotation_sidecar": True,
+     "argus": {"tables": "geyan/argus/argus_labels/abc130k/abc_val_v1/tables_v3ar", "repo_prefix": "abc130k_val_t"}, "label": "ABC-130k (val)", "kind": "yam", "bucket": S3_BUCKET,
      "prefix": "yam_public/ABC-130k/data/val", "mcap_name": "episode.mcap"},
     # The xdof VENDOR bucket copy of the zed collection — carries inline
     # /subtask-annotation labels (which the tri-ml mirror lacks). Readable only via
@@ -82,6 +85,7 @@ SOURCES = [
     # across 34 internal tasks. Handled by the single-root lerobot adapter, which
     # groups episodes by their dataset task label. 3 cams (left/right/top), AV1.
     {"id": "molmoact2_yam", "origin": "open", "embodiments": ["YAM"], "label": "MolmoAct2 Bimanual YAM", "kind": "lerobot_single",
+     "argus": {"tables": "geyan/argus/argus_labels/molmo/molmo_v1/tables", "repo": "molmo_yam_v3", "join": "index"},
      "bucket": S3_BUCKET, "prefix": "yam_public/MolmoAct2-BimanualYAM"},
     # Isaac sim datasets from raiden_sim2real (scripted experts on the YAM twin). Each
     # dataset folder s3://tri-yam/sim_datasets/<name>/ holds the source h5 + dataset
