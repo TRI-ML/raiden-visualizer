@@ -18,9 +18,9 @@ STATIC = Path(__file__).resolve().parents[1] / "static"
 SHOTS = Path("/tmp")
 
 CATALOG = {"aggregate": {"num_datasets": 1, "total_episodes": 2, "total_tasks": 1, "total_hours": 0.1, "with_annotations": 0, "building": 0},
-           "datasets": [{"id": "demo", "label": "Demo webbed", "kind": "webbed", "origin": "open", "embodiments": ["YAM", "Hand"], "num_episodes": 2, "num_tasks": 1, "total_hours": 0.1,
+           "datasets": [{"id": "demo", "label": "Demo webbed", "kind": "webbed", "origin": "open", "arms": 2, "embodiments": ["YAM", "Hand"], "num_episodes": 2, "num_tasks": 1, "total_hours": 0.1,
                          "cameras": ["cam_high"], "preview": None, "annotations": "n/a"},
-                        {"id": "lab", "label": "Lab Franka", "kind": "lerobot", "origin": "tri", "embodiments": ["Franka"], "num_episodes": 5, "num_tasks": 2, "total_hours": 0.4,
+                        {"id": "lab", "label": "Lab Franka", "kind": "lerobot", "origin": "tri", "arms": 1, "embodiments": ["Franka"], "num_episodes": 5, "num_tasks": 2, "total_hours": 0.4,
                          "cameras": ["cam_high"], "preview": None, "annotations": "n/a"}]}
 # the persisted stats pass (stats_v2): per-episode records + the summary the tiles read; nothing is computed on request
 STATS = {"num_episodes": 2, "total_episodes": 2, "scanned": 2, "sampled": False, "built_at": 1.0,
@@ -328,5 +328,11 @@ def test_catalog_filter_drives_tiles_chart_and_sections(browser, site):
     page.wait_for_function("document.querySelectorAll('.cat-section-title').length === 1")
     assert "TRI" in page.locator(".cat-section-title").inner_text() and "Open source" not in page.locator(".cat-section-title").inner_text()
     assert "1 of 2 datasets" in page.locator("#cat-hint").inner_text()
-    page.evaluate("localStorage.removeItem('rv_emb'); localStorage.removeItem('rv_origin')")
+    # Arms: Single arm leaves only the one-arm set (DROID in production; "Lab Franka" here), with its pill on the card
+    page.locator("#cat-filterbar .cat-pill", has_text="All").nth(1).click()
+    page.locator("#cat-filterbar .cat-pill", has_text="Single arm").click()
+    page.wait_for_function("document.querySelectorAll('.cat-card').length === 1")
+    assert "Lab Franka" in page.locator(".cat-card-title").inner_text()
+    assert page.locator(".cat-card .cat-arms", has_text="Single arm").count() == 1
+    page.evaluate("localStorage.removeItem('rv_emb'); localStorage.removeItem('rv_origin'); localStorage.removeItem('rv_arms')")
     page.close()

@@ -156,7 +156,7 @@ def list_sources():
     this host are listed (access-gated ones auto-hide where creds are missing)."""
     available = sources.get_sources(config.SOURCES)  # access-filtered registry
     return {"sources": [{"id": s["id"], "label": s["label"], "kind": s["kind"], "origin": s.get("origin"),
-                         "embodiments": s.get("embodiments"), "prod": s.get("prod", True)}
+                         "embodiments": s.get("embodiments"), "prod": s.get("prod", True), "arms": s.get("arms")}
                         for s in config.SOURCES if s["id"] in available]}
 
 
@@ -203,6 +203,7 @@ def get_catalog():
         live = {"label": spec["label"], "kind": spec["kind"], "prod": spec.get("prod", True), "origin": spec.get("origin")}
         if spec.get("embodiments"):   # config wins over whatever the frozen card recorded
             live["embodiments"] = spec["embodiments"]
+        live["arms"] = spec.get("arms")   # 1 = single arm, 2 = bimanual (filter + pill)
         if spec.get("annotation_sidecar") or spec.get("argus"):   # exact label shares from the (persisted) overview
             ov = src.overview_peek() or {}
             frac = catalog._annotated_frac(ov.get("tasks") or [])
