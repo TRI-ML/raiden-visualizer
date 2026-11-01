@@ -19,6 +19,8 @@ SHOTS = Path("/tmp")
 
 CATALOG = {"aggregate": {"num_datasets": 1, "total_episodes": 2, "total_tasks": 1, "total_hours": 0.1, "with_annotations": 0, "building": 0},
            "datasets": [{"id": "demo", "label": "Demo webbed", "kind": "webbed", "origin": "open", "embodiments": ["YAM", "Hand"], "num_episodes": 2, "num_tasks": 1, "total_hours": 0.1,
+                         "cameras": ["cam_high"], "preview": None, "annotations": "n/a"},
+                        {"id": "lab", "label": "Lab Franka", "kind": "lerobot", "origin": "tri", "embodiments": ["Franka"], "num_episodes": 5, "num_tasks": 2, "total_hours": 0.4,
                          "cameras": ["cam_high"], "preview": None, "annotations": "n/a"}]}
 # the persisted stats pass (stats_v2): per-episode records + the summary the tiles read; nothing is computed on request
 STATS = {"num_episodes": 2, "total_episodes": 2, "scanned": 2, "sampled": False, "built_at": 1.0,
@@ -108,7 +110,7 @@ def _open(browser, site, hash_="", query=""):
 def test_catalog_renders_and_theme_toggle_persists(browser, site):
     page = _open(browser, site)
     page.wait_for_selector(".cat-card")
-    assert "Demo webbed" in page.locator(".cat-card-title").first.inner_text()
+    assert page.locator(".cat-card-title", has_text="Demo webbed").count() == 1   # TRI section lists first now
     assert page.evaluate("document.documentElement.dataset.theme") in ("dark", "light")
     page.evaluate("applyTheme('dark')")
     page.screenshot(path=str(SHOTS / "rv_dark_catalog.png"))
@@ -304,4 +306,27 @@ def test_bimanual_ee_episode_renders_the_arm_grid(browser, site):
     assert rot.locator(".legend > span").count() == 6
     page.locator(".plot-card").scroll_into_view_if_needed()
     page.screenshot(path=str(SHOTS / "rv_traj_sections.png"))
+    page.close()
+
+
+def test_catalog_filter_drives_tiles_chart_and_sections(browser, site):
+    # the filter strip is one view: tiles, the Compare chart rows and the sections follow Embodiment / Origin
+    page = _open(browser, site)
+    page.wait_for_selector(".cat-card")
+    page.evaluate("localStorage.removeItem('rv_emb'); localStorage.removeItem('rv_origin')")
+    tiles = lambda: [t.strip() for t in page.locator("#cat-agg .cat-stat-v").all_inner_texts()]
+    assert tiles()[0] == "2"                                   # both fixture datasets
+    assert page.evaluate("state.catalogShown.length") == 2
+    assert page.locator(".cat-section-title").count() == 2    # TRI + Open source / Purchased
+    page.locator("#cat-filterbar .cat-pill", has_text="YAM").click()
+    page.wait_for_function("document.querySelector('#cat-agg .cat-stat-v').textContent.trim() === '1'")
+    assert tiles()[:2] == ["1", "2"]                            # Demo webbed only: 1 dataset, 2 episodes
+    assert page.evaluate("state.catalogShown.length") == 1     # chart draws one row
+    assert page.locator(".cat-section-title").count() == 1 and "Open source" in page.locator(".cat-section-title").inner_text()
+    page.locator("#cat-filterbar .cat-pill", has_text="All").first.click()
+    page.locator("#cat-filterbar .cat-pill", has_text="TRI").click()
+    page.wait_for_function("document.querySelectorAll('.cat-section-title').length === 1")
+    assert "TRI" in page.locator(".cat-section-title").inner_text() and "Open source" not in page.locator(".cat-section-title").inner_text()
+    assert "1 of 2 datasets" in page.locator("#cat-hint").inner_text()
+    page.evaluate("localStorage.removeItem('rv_emb'); localStorage.removeItem('rv_origin')")
     page.close()
