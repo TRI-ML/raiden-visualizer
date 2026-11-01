@@ -530,7 +530,7 @@ async function renderCatalog() {
     card.innerHTML = `
       <div class="cat-card-head">
         <div class="cat-card-title">${c.label}</div>
-        <div class="cat-pills"><span class="cat-fmt">${fmt}</span>${ORIGIN_LABEL[c.origin] ? `<span class="cat-fmt cat-origin ${c.origin}">${ORIGIN_LABEL[c.origin]}</span>` : ""}${embodimentPills(c.embodiments)}</div>
+        <div class="cat-pills"><span class="cat-fmt">${fmt}</span>${c.origin !== "tri" && ORIGIN_LABEL[c.origin] ? `<span class="cat-fmt cat-origin ${c.origin}">${ORIGIN_LABEL[c.origin]}</span>` : ""}${embodimentPills(c.embodiments)}</div>
       </div>
       <div class="cat-metrics">
         <div><b>${(c.num_episodes ?? "—").toLocaleString?.() ?? c.num_episodes ?? "—"}</b><span>episodes</span></div>
