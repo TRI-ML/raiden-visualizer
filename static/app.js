@@ -530,7 +530,7 @@ async function renderCatalog() {
       ["Tasks", sum("num_tasks").toLocaleString()],
       ["Hours", hours ? `${shown.some((d) => d.sampled) ? "~" : ""}${Math.round(hours).toLocaleString()}` : "—"],
     ].map(([k, v]) => `<div class="cat-stat"><div class="cat-stat-v">${v}</div><div class="cat-stat-k">${k}</div></div>`).join("");
-    // chart: filtered rows on the unfiltered axis, so a bar keeps its length across filters
+    // chart: filtered rows, axis rescaled to the selection
     state.catalogShown = shown;
     drawCatalogBars(state.catMetric || "episodes", animateBars);
     $("#cat-hint").textContent = a.building ? `${a.building} computing…` : `${shown.length} of ${data.datasets.length} datasets`;
@@ -642,7 +642,6 @@ function drawCatalogBars(metric, animate = true) {
     .filter((r) => typeof r.v === "number" && r.v > 0)
     .sort((a, b) => b.v - a.v);
   const rows = rowsOf(state.catalogShown || state.catalog);
-  const allRows = rowsOf(state.catalog);   // axis max stays unfiltered so a bar keeps its length across filters
   // Size the canvas: fixed row height so the card grows with dataset count.
   const rowH = 30, padTop = 8, padBot = 26;
   canvas.style.height = (rows.length * rowH + padTop + padBot) + "px";
@@ -652,7 +651,7 @@ function drawCatalogBars(metric, animate = true) {
     ctx.fillText("computing…", 8, 20);
     return;
   }
-  const maxV = Math.max(...(allRows.length ? allRows : rows).map((r) => r.v));
+  const maxV = Math.max(...rows.map((r) => r.v));   // axis follows the filtered rows (user, 2026-11-01: rescale), ticks re-nice
   const labelW = 168, valW = 92;
   const x0 = labelW, plotW = W - labelW - valW;
   // x gridlines + axis ticks. IMPORTANT: the axis max must be >= maxV, else the
