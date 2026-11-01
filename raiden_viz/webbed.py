@@ -20,7 +20,7 @@ from pathlib import Path
 
 import numpy as np
 
-from . import config
+from . import cache, config
 
 FPS = 30            # steps are 30 Hz (lowdim timestep is k/30); the shard mp4s are muxed at 10 fps and re-timed here
 MAX_POINTS = 600    # plot series subsampling, as robot_data.summarize
@@ -91,7 +91,7 @@ def read_shard(tar_path: Path, out_dir: Path) -> dict:
 def concat_rgb(parts: list[Path], out_mp4: Path, fps: int = FPS) -> None:
     """Join the per-shard mp4s into one clip at the step rate (the shards are muxed at 10 fps, so a plain
     stream copy would play 3x slow)."""
-    lst = out_mp4.with_suffix(".txt")
+    lst = cache.scratch_path(out_mp4, "txt")
     lst.write_text("".join(f"file '{p.resolve()}'\n" for p in parts))
     cmd = ["ffmpeg", "-y", "-loglevel", "error", *config.FFMPEG_THREADS, "-f", "concat", "-safe", "0", "-i", str(lst),
            "-vf", f"setpts=N/{fps}/TB", "-r", str(fps), "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",

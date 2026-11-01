@@ -17,6 +17,8 @@ from pathlib import Path
 from mcap.exceptions import McapError
 from mcap.reader import make_reader
 
+from . import cache
+
 from . import config
 
 # Header layout of each side_by_side message payload.
@@ -82,7 +84,7 @@ def decode_to_mp4(svo_path: Path, out_mp4: Path, eye: str = "left", fps: int = 3
     if eye not in EYES:
         raise ValueError(f"eye must be one of {EYES}, got {eye!r}")
 
-    h264_path = out_mp4.with_suffix(".h264")
+    h264_path = cache.scratch_path(out_mp4, "h264")
     n_frames = _extract_h264(svo_path, h264_path)
     if n_frames == 0:
         h264_path.unlink(missing_ok=True)

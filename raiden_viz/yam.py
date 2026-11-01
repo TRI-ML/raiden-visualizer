@@ -26,7 +26,7 @@ from pathlib import Path
 import numpy as np
 from mcap.reader import make_reader
 
-from . import config
+from . import cache, config
 
 # A camera topic is one whose schema is foxglove.CompressedVideo. Rather than
 # match on name suffixes (which differ across conventions), we detect cameras by
@@ -214,7 +214,7 @@ def extract_camera_mp4(mcap_path: Path, camera: str, out_mp4: Path, fps: int = 3
     if match is None:
         raise ValueError(f"camera {camera!r} not found in {mcap_path.name}")
 
-    raw = out_mp4.with_suffix(".bitstream")
+    raw = cache.scratch_path(out_mp4, "bitstream")
     n = 0
     codec = None
     with open(mcap_path, "rb") as f, open(raw, "wb") as out:

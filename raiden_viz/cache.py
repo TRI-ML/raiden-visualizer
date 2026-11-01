@@ -32,6 +32,14 @@ def path_for(name: str) -> Path:
     return config.CACHE_DIR / name
 
 
+def scratch_path(dest: Path, ext: str) -> Path:
+    """A private intermediate next to ``dest`` (a decoder's raw bitstream, a concat list): unique per process AND
+    thread, and ``.tmp``-tagged so the evictor ignores it. The old ``dest.with_suffix(".h264")`` was one shared
+    name per clip, and the server and the warm CLI (or two threads) decoding the same clip unlinked each other's
+    half-written stream — the 'ffprobe/ffmpeg failed' class of the Raiden 2.0 warm."""
+    return dest.with_name(f"{dest.name}.{os.getpid()}_{threading.get_ident()}.{ext.lstrip('.')}.tmp")
+
+
 # --- durable (remote) tier -------------------------------------------------
 # A decoded clip costs a 200-880 MB download plus an ffmpeg pass to produce, and the
 # local CACHE_DIR is per-host: it dies on every container redeploy and is not shared
