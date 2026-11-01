@@ -183,12 +183,18 @@ def test_episode_switch_keeps_the_old_content_until_the_new_one_lands(browser, s
     page.wait_for_selector("#camera-grid .cam-tile")
     old_tiles = page.evaluate("[...document.querySelectorAll('#camera-grid .cam-tile')].map(t => t.outerHTML.length)")
 
+    page.evaluate("localStorage.removeItem('rv_load_ms')")   # no history → the first-load hint under "Loading"
     held = []   # the detail request is held open until we have looked at the screen (a sleep would block the dispatcher)
     page.route("**/episodes/chunk_000__episode_000003", lambda route: held.append(route))
     page.evaluate("() => { selectEpisode('chunk_000__episode_000003'); }")   # not awaited: the request is held
-    page.wait_for_timeout(300)
-    assert page.locator("#ep-instruction").inner_text() == "episode 3"          # never "Loading…"
-    assert page.evaluate("document.documentElement.classList.contains('busy')")   # the bar is lit while in flight
+    page.wait_for_timeout(400)
+    assert page.locator("#ep-instruction").inner_text() == "episode 3"          # never "Loading…" in the header
+    assert page.evaluate("document.documentElement.classList.contains('busy')")   # wordmark spinner while in flight
+    # the overlay: spinner + "Loading" + an estimate line (no history yet for a webbed detail → first-load hint)
+    assert page.locator("#load-overlay").is_visible()
+    assert page.locator("#load-overlay .lo-word").inner_text() == "Loading"
+    assert "first load may take a while" in page.locator("#lo-est").inner_text()
+    page.screenshot(path=str(SHOTS / "rv_loading_overlay.png"))
     assert page.locator("#camera-grid .cam-tile").count() == len(old_tiles)       # previous episode still on screen
     assert page.locator("#lang-card .lang-row, #lang-list > *").count() == 0
     page.screenshot(path=str(SHOTS / "rv_switch_t0.png"))
@@ -196,6 +202,8 @@ def test_episode_switch_keeps_the_old_content_until_the_new_one_lands(browser, s
     page.wait_for_selector("#lang-list > *")
     assert "put the spoon" in page.locator("#ep-instruction").inner_text()
     assert not page.evaluate("document.documentElement.classList.contains('busy')")
+    page.wait_for_selector("#load-overlay", state="hidden")
+    assert page.evaluate("JSON.parse(localStorage.getItem('rv_load_ms'))['detail:webbed'].length") == 1   # remembered
     page.screenshot(path=str(SHOTS / "rv_switch_t1.png"))
     page.close()
 

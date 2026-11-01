@@ -310,5 +310,11 @@
 
   <script src="/dropdown.js?v=2"></script>
   <script src="/app.js"></script>
+  <!-- Loading overlay over the main pane (user, 2026-11-01): spinner, "Loading", and a time estimate from past loads.
+       Shown only after 250 ms, pointer-events none, previous content stays visible beneath (see app.js loadOverlay). -->
+  <div id="load-overlay" class="load-overlay hidden" aria-live="polite">
+    <div class="lo-backdrop"></div>
+    <div class="lo-card"><div class="spinner lo-spin"></div><div class="lo-word">Loading</div><div class="lo-est" id="lo-est"></div></div>
+  </div>
 </body>
 </html>
