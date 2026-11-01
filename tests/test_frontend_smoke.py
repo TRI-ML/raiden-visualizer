@@ -189,3 +189,14 @@ def test_language_timeline_syncs_with_the_clock(browser, site):
     assert page.locator("#lang-list .lang-row.active").get_attribute("data-i") == "1"
     page.screenshot(path=str(SHOTS / "argus_timeline.png"))
     page.close()
+
+
+def test_tab_icon_is_wired(browser, site):
+    # the animated YAM-arm favicon: icon link present, the swapper script and the SVG are served
+    page = _open(browser, site)
+    page.wait_for_selector(".cat-card")
+    assert page.locator('link[rel="icon"][type="image/svg+xml"]').count() == 1
+    assert page.evaluate("document.querySelector('link[rel=icon]').href.startsWith('data:image/svg+xml')")  # swapper ran
+    assert page.request.get(f"{site}/favicon.js").status == 200
+    assert page.request.get(f"{site}/favicon.svg").status == 200
+    page.close()
