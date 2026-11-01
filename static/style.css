@@ -617,14 +617,16 @@ select option { background: var(--bg-elev); color: var(--text); }
 .cat-stat-v { font-size: 26px; font-weight: 700; color: var(--text); line-height: 1.1; }
 .cat-stat-k { font-size: 12px; color: var(--text-dim); margin-top: 4px; }
 
-.cat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; padding: 16px; }   /* breathing room inside the Datasets card */
+.cat-grid { display: flex; flex-direction: column; gap: 10px; padding: 16px; }   /* sections stacked inside the Datasets card */
+.cat-section { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; margin-bottom: 14px; }
+.cat-section-title { font-size: var(--fs-small); text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); font-weight: 600; }
 .cat-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius);
   padding: 16px; cursor: pointer; transition: border-color .12s, background .12s, transform .12s; }
 .cat-card:hover { border-color: var(--accent); background: var(--bg-hover); transform: translateY(-2px); }
 /* title on its own line, the format + origin pills in a row underneath so long names never push a pill out */
 .cat-card-head { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin-bottom: 12px; }
 .cat-pills { display: flex; flex-wrap: wrap; gap: 6px; }
-.cat-card-title { font-size: 15px; font-weight: 600; color: var(--text); }
+.cat-card-title { font-size: 20px; font-weight: 700; color: var(--text); letter-spacing: -0.01em; }   /* big, unmistakable dataset name */
 .cat-fmt { font-size: var(--fs-small); color: var(--text-dim); background: var(--bg-elev); border: 1px solid var(--border);
   padding: 2px 8px; border-radius: 20px; white-space: nowrap; }
 .cat-metrics { display: flex; gap: 18px; margin-bottom: 12px; }
@@ -730,7 +732,7 @@ select option { background: var(--bg-elev); color: var(--text); }
 }
 .pv-box .pv-cam { position: absolute; left: 6px; bottom: 6px; font-size: 10px; color: var(--on-video); background: var(--on-video-bg);
   padding: 1px 6px; border-radius: 4px; font-family: var(--mono); pointer-events: none; }
-.cat-card > .pv-box { margin-bottom: 10px; aspect-ratio: 2.6; }   /* single-camera card: short wide preview */
+.cat-card > .pv-box { margin-bottom: 8px; aspect-ratio: 2; }   /* main preview, a little shorter than 16:9; the strip of small tiles sits under it */
 .cat-strip { display: flex; gap: 6px; margin: 0 0 10px; }
 .cat-strip .pv-box { flex: 1; aspect-ratio: 16 / 9; border-radius: 6px; }
 .ov-task-row .pv-box { width: 64px; border-radius: 4px; }
