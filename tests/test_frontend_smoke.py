@@ -168,8 +168,8 @@ def test_episode_view_renders_camera_grid_and_generic_names(browser, site):
     page.evaluate("applyTheme('light')")
     page.screenshot(path=str(SHOTS / "rv_light_episode.png"))
     page.evaluate("showOverview()")
-    page.wait_for_selector("#ov-tag-filter .facet-chip")
-    assert "bimanual" in page.locator("#ov-tag-filter").inner_text()
+    page.wait_for_selector(".ov-task-row")
+    assert page.locator("#ov-tag-filter").count() == 0   # the tag chip row is gone (PR #108)
     assert "null" not in page.locator("#ov-task-list").inner_text()
     page.close()
 
