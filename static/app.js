@@ -187,6 +187,13 @@ async function init() {
     else if (ev.key === "ArrowRight") { ev.preventDefault(); stepEpisode(1); }
   });
   $("#play-btn").addEventListener("click", togglePlay);
+  // playback speed (user, 2026-10-31): applies to every camera video; the clock reads the master video so it follows
+  $("#speed-seg").addEventListener("click", (ev) => {
+    const b = ev.target.closest("button"); if (!b) return;
+    state.rate = Number(b.dataset.rate) || 1;
+    document.querySelectorAll("#speed-seg button").forEach((x) => x.classList.toggle("active", x === b));
+    state.tiles.forEach((t) => { t.video.playbackRate = state.rate; });
+  });
   $("#scrubber").addEventListener("input", onScrub);
   $("#trace-toggle").addEventListener("click", (ev) => {
     state.eeTraceOn = !state.eeTraceOn;
@@ -2032,6 +2039,7 @@ function makeVideoTile(c) {
   const onReady = () => {
     if (tileState.ready) return;
     tileState.ready = true;
+    video.playbackRate = state.rate || 1;
     ov.hide();
     fitTileAspect(tile, video);
     label.innerHTML = "";
@@ -2277,7 +2285,7 @@ function renderMeta(md, d) {
     ["Cameras", (d.cameras || []).length || null],
     ["Subtasks", md.num_annotations || null],
     ["Timestamp", md.timestamp ? md.timestamp.replace("T", " ").slice(0, 19) : null],
-    ["Converted", md.converted != null ? String(md.converted) : null],
+    // "Converted" row dropped (user, 2026-10-31)
   ];
   let shown = 0;
   rows.forEach(([k, val]) => {
@@ -2301,7 +2309,7 @@ function renderRollout(md) {
   const ri = md && md.rollout_info;
   if (!ri || typeof ri !== "object") { card.classList.add("hidden"); return; }
   card.classList.remove("hidden");
-  $("#rollout-generator").textContent = md.generator || "";
+  $("#rollout-generator").textContent = "";   // generator id (e.g. yam_eval_policy_rollout) not shown (user, 2026-10-31)
   const body = $("#rollout-body");
   body.innerHTML = "";
   const sc = md.score || {};   // yam-eval rollouts: the operator's / judge's score block

@@ -482,6 +482,8 @@ select option { background: var(--bg-elev); color: var(--text); }
   font-family: inherit; transition: all 0.12s; white-space: nowrap;
 }
 .trace-toggle:hover { color: var(--text); }
+.speed-seg { flex: none; }
+.speed-seg button { padding: 4px 9px; font-size: var(--fs-small); font-family: var(--mono); }
 .trace-toggle.active { background: var(--accent-soft); color: var(--accent); border-color: var(--accent-ring); }
 .trace-toggle.hidden { display: none; }
 
