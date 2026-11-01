@@ -101,7 +101,7 @@ def test_catalog_renders_and_theme_toggle_persists(browser, site):
     # every colour goes through a token: the light sheet changes the page background
     bg = page.evaluate("getComputedStyle(document.body).backgroundColor")
     assert bg == "rgb(245, 246, 249)", bg
-    assert page.locator("#brand-home").inner_text().split() == ["YAM", "Datasets"]
+    assert page.locator("#brand-home").inner_text().split() == ["Robot", "Datasets"]
     page.close()
 
 
