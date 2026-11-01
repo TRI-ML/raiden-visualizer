@@ -102,7 +102,7 @@ WEBBED_DATASETS = [
     "kitchen_full_no_put_plate", "kitchen_rack_combo", "kitchen_put_spoon", "stack_cup_neural_light",
     "clean_up_table_V2_neural_light_1245", "organize_the_table_fork_spoon_merged",
 ]
-SOURCES.append({"id": "webbed", "origin": "open", "embodiments": ["YAM"], "label": "YAM webbed (UW)", "kind": "webbed", "bucket": S3_BUCKET,
+SOURCES.append({"id": "webbed", "origin": "open", "embodiments": ["YAM"], "label": "UW YAM", "kind": "webbed", "bucket": S3_BUCKET,
                 "prefix": "geyan/anydata/cv_webbed/videos", "split": "split_all__IKDLA_48",
                 "datasets": [f"{n}_seg48" for n in WEBBED_DATASETS]})
 
