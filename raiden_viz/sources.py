@@ -1381,7 +1381,7 @@ class LeRobotSource(Source):
         per_task = [{"task": t["task"], "episodes": t["episodes"], "latest": t["latest"],
                      "featured": min(t["episodes"], config.FEATURED_N),
                      "collected_start": None, "collected_end": None,
-                     "preview": t.get("preview"), "facts": t.get("facts")}
+                     "preview": t.get("preview"), "facts": t.get("facts"), **self.task_facts(t["task"])}
                     for t in idx["tasks"]]
         per_task.sort(key=lambda t: t["episodes"], reverse=True)
         return {

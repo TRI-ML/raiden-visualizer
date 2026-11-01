@@ -20,10 +20,12 @@ _repos: dict[str, dict] = {}    # sid -> {task: repo_name}
 _tables: dict[str, dict] = {}   # f"{sid}/{repo}" -> {key: [[t, text], ...]}
 
 
-def _repo_for(spec: dict, task: str) -> str | None:
+def _repos_for(spec: dict, task: str) -> list[str]:
+    """Table repos for a task: one named repo, or every ``<repo_prefix>NNN_<task>`` dir. The writer capped repo names
+    at 53 characters and split some big tasks over two repos, so a truncated suffix matches by prefix of the task."""
     a = spec["argus"]
     if a.get("repo"):
-        return a["repo"]
+        return [a["repo"]]
     sid = spec["id"]
     with _lock:
         m = _repos.get(sid)
@@ -32,10 +34,13 @@ def _repo_for(spec: dict, task: str) -> str | None:
         for d in s3.list_dirs(a["tables"], bucket=a.get("bucket") or config.S3_BUCKET):
             mm = re.match(re.escape(a["repo_prefix"]) + r"\d+_(.+)$", d)
             if mm:
-                m[mm.group(1)] = d
+                m.setdefault(mm.group(1), []).append(d)
         with _lock:
             _repos[sid] = m
-    return m.get(task)
+    hits = m.get(task)
+    if hits is None:
+        hits = [r for suf, repos in m.items() if len(suf) < len(task) and task.startswith(suf) for r in repos]
+    return hits or []
 
 
 def _load(spec: dict, repo: str) -> dict:
@@ -80,18 +85,19 @@ def annotations_for(spec: dict, task: str, episode: str) -> list[dict]:
     """Viewer-shape Argus labels for one episode, [] when the dataset or the episode has none."""
     if not spec.get("argus"):
         return []
-    repo = _repo_for(spec, task)
-    if not repo:
-        return []
-    return [{"t": round(t, 3), "text": text, "source": SOURCE} for t, text in _load(spec, repo).get(_key(spec, episode), [])]
+    key = _key(spec, episode)
+    for repo in _repos_for(spec, task):
+        segs = _load(spec, repo).get(key)
+        if segs:
+            return [{"t": round(t, 3), "text": text, "source": SOURCE} for t, text in segs]
+    return []
 
 
 def coverage(spec: dict, task: str, episodes: list) -> int | None:
     """How many of the task's episodes have at least one Argus sub-task row (None when the dataset has no tables)."""
     if not spec.get("argus"):
         return None
-    repo = _repo_for(spec, task)
-    if not repo:
-        return 0
-    tbl = _load(spec, repo)
-    return sum(1 for e in episodes if _key(spec, e) in tbl)
+    keys = set()
+    for repo in _repos_for(spec, task):
+        keys |= set(_load(spec, repo))
+    return sum(1 for e in episodes if _key(spec, e) in keys)
