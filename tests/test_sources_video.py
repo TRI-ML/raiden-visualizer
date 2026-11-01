@@ -87,3 +87,23 @@ def test_raiden_detail_tolerates_a_missing_metadata_json(monkeypatch):
     monkeypatch.setattr(sources.s3, "list_files", lambda prefix, bucket=None: [])
     d = src.episode_detail("HangMugs_dagger", "2026-10-19")
     assert d["metadata"] == {} and d["instruction"] is None and d["cameras"] == []
+
+
+def test_raiden_traces_are_built_once_and_served_from_the_blob(monkeypatch, tmp_path):
+    """The npz summary + FK traces are the slow part of a raiden episode page; they are cached by npz etag."""
+    from raiden_viz import cache, robot_data, s3, sources
+    src = sources.RaidenSource({"id": "r", "label": "R", "kind": "raiden", "bucket": "b", "prefix": "p"})
+    npz_obj = s3.S3Object(key="p/T/e/robot_data.npz", size=10, etag="abc")
+    monkeypatch.setattr(sources.s3, "try_head", lambda key, bucket=None: npz_obj if key.endswith("robot_data.npz") else None)
+    monkeypatch.setattr(sources.s3, "list_files", lambda prefix, bucket=None: [])
+    monkeypatch.setattr(sources.cache, "get_or_create", lambda name, produce, **kw: tmp_path / "x.npz")
+    calls = []
+    monkeypatch.setattr(robot_data, "summarize", lambda npz: calls.append("summarize") or {"keys": []})
+    monkeypatch.setattr(sources, "_ee_traces", lambda npz, calib: None)
+    store = {}
+    monkeypatch.setattr(sources.cache, "get_json", lambda name, remote=False: store.get(name))
+    monkeypatch.setattr(sources.cache, "put_json", lambda name, value, remote=False: store.__setitem__(name, value))
+    d1 = src.episode_detail("T", "e")
+    d2 = src.episode_detail("T", "e")
+    assert d1["robot"] == {"keys": []} and d2["robot"] == {"keys": []}
+    assert calls == ["summarize"] and list(store) == ["raiden_traces_abc_nocalib_v1.json"]

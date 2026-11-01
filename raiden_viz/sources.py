@@ -715,12 +715,19 @@ class RaidenSource(Source):
         ee_traces = None
         robot_obj = s3.try_head(f"{prefix}/robot_data.npz", bucket=self.bucket)
         if robot_obj:
-            npz = cache.get_or_create(
-                f"{robot_obj.etag}_robot.npz",
-                lambda dst: s3.download(robot_obj.key, dst, bucket=self.bucket),
-            )
-            robot = robot_data.summarize(npz)
-            ee_traces = _ee_traces(npz, calibration)
+            # The traces (npz download + FK) are the slow part on a loaded hosted container (seconds to tens of
+            # seconds beside a warm; a 60 s gateway timeout then fails the whole episode page), so they live in the
+            # derived tier keyed by the npz etag, like the LeRobot detail blobs: one build per episode, ever.
+            blob = f"raiden_traces_{robot_obj.etag}_{'calib' if calibration else 'nocalib'}_v1.json"
+            traces = cache.get_json(blob, remote=True)
+            if traces is None:
+                npz = cache.get_or_create(
+                    f"{robot_obj.etag}_robot.npz",
+                    lambda dst: s3.download(robot_obj.key, dst, bucket=self.bucket),
+                )
+                traces = {"robot": robot_data.summarize(npz), "ee_traces": _ee_traces(npz, calibration)}
+                cache.put_json(blob, traces, remote=True)
+            robot, ee_traces = traces["robot"], traces["ee_traces"]
 
         return {
             "source": self.id, "task": task, "episode": episode,
