@@ -1783,7 +1783,33 @@ async function loadEpisodeFacts(task) {
 // so the sidebar stays responsive; the search box narrows within the full list.
 const EPISODE_RENDER_CAP = 300;
 
+// Sidebar Episode dropdown: the featured episodes (or all, once loaded), the current one selected, plus a
+// "show all" entry that loads the full task. Picking one opens it; the bottom pager scrubs through the same list.
+function renderEpisodeSelect() {
+  const sel = $("#episode-select");
+  if (!sel) return;
+  sel.innerHTML = "";
+  if (!state.episode) sel.appendChild(new Option("Pick an episode…", "", true, true));
+  state.episodes.forEach((ep, i) => {
+    const parsed = parseEpisodeName(ep);
+    sel.appendChild(new Option(`${i} · ${parsed.name !== ep ? parsed.name : ep}`, ep, false, ep === state.episode));
+  });
+  if (state.episodesFeatured && state.episodesTotal > state.episodes.length) {
+    sel.appendChild(new Option(`Show all ${state.episodesTotal.toLocaleString()} episodes…`, "__all__"));
+  }
+  sel.onchange = async () => {
+    const v = sel.value;
+    if (v === "__all__") {
+      const { episodes } = await api(`${apiBase()}/tasks/${encodeURIComponent(state.task)}/episodes?all=1`);
+      state.episodes = episodes; state.episodesFeatured = false; renderEpisodeList();
+      return;
+    }
+    if (v) selectEpisode(v);
+  };
+}
+
 function renderEpisodeList() {
+  renderEpisodeSelect();
   const filter = $("#episode-search").value.toLowerCase();
   const list = $("#episode-list");
   list.innerHTML = "";

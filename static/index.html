@@ -48,8 +48,14 @@
       <div id="task-head" class="task-head hidden"></div>
     </div>
 
+    <!-- episode picker (user, 2026-10-31): a searchable dropdown instead of the long list; the bottom pager scrubs too -->
+    <div class="side-section">
+      <label class="side-label" for="episode-select">Episode <span id="episode-count" class="pill"></span></label>
+      <select id="episode-select" data-dropdown="search"></select>
+    </div>
+
     <div class="side-section grow" hidden>
-      <label class="side-label">Episodes <span id="episode-count" class="pill"></span></label>
+      <label class="side-label">Episodes</label>
       <ul id="episode-list"></ul>
     </div>
 
