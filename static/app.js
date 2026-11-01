@@ -1050,7 +1050,7 @@ function renderTaskList() {
     row.appendChild(t.preview ? previewBox(state.source, { task: t.task, ...t.preview }, { label: false }) : el("div", "t-nopv"));
     const name = el("div", "t-name", t.task);
     if (t.prompt) name.appendChild(el("div", "t-prompt", t.prompt));   // webbed datasets carry a language prompt
-    if (t.tags && t.tags.length) { const tg = el("div", "t-tags"); t.tags.forEach((x) => tg.appendChild(el("span", "t-tag", x))); name.appendChild(tg); }
+    // per-task tag pills (webbed: bc / dagger / seg48 …) hidden — noise in the Tasks list (user, 2026-11-01)
     row.appendChild(name);
     const bar = el("div", "t-bar");
     const fill = el("i");
