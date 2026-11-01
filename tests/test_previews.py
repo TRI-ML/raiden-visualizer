@@ -137,7 +137,6 @@ def test_previews_endpoints(remote, monkeypatch):
     src = _Src()
     monkeypatch.setattr(previews, "build_for",
                         lambda s, task, ep, wd: {"ego_camera": ("pv_E_ego_camera.jpg", "pv_E_ego_camera.mp4")})
-    monkeypatch.setattr(app_module, "_WARMS", {})
     monkeypatch.setattr(app_module, "_src", lambda sid: src)
     c = TestClient(app_module.app)
     assert c.post("/api/sources/r/previews/warm").status_code == 200

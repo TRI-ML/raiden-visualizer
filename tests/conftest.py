@@ -80,3 +80,10 @@ def _isolated_cache_dir(tmp_path, monkeypatch):
     d = tmp_path / "_cache"
     d.mkdir(exist_ok=True)
     monkeypatch.setattr(config, "CACHE_DIR", d)
+
+
+@pytest.fixture(autouse=True)
+def jobs_inline(monkeypatch):
+    """Background jobs run in a thread of the test process (not a child) so monkeypatched sources reach them."""
+    from raiden_viz import jobs
+    monkeypatch.setattr(jobs, "INLINE", True)

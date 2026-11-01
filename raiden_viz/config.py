@@ -189,6 +189,10 @@ LOG_LEVEL = os.environ.get("RAIDEN_LOG_LEVEL", "INFO").strip().upper()
 # browsing never re-lists, short enough that new episodes surface promptly.
 OVERVIEW_TTL_S = float(os.environ.get("RAIDEN_OVERVIEW_TTL_S", "300"))
 
+# Extra ffmpeg args every decode/encode call starts with. The job runner (jobs.py) sets RAIDEN_FFMPEG_THREADS=1 for
+# its children so background warms leave a core to the API process; the server itself leaves it unset.
+FFMPEG_THREADS = ["-threads", os.environ["RAIDEN_FFMPEG_THREADS"]] if os.environ.get("RAIDEN_FFMPEG_THREADS") else []
+
 # Start every source's FULL per-episode scan at boot. That scan backs the episode
 # filter, and nothing started it: a user clicked the button and then watched it —
 # ~51 minutes on the largest source. Deploying at a quiet hour only helps if the

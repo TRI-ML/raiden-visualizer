@@ -32,7 +32,7 @@ import logging
 
 from botocore.exceptions import ClientError
 
-from . import cache, calib_overlay, config, fk, lerobot, previews, robot_data, s3, svo, webbed, yam
+from . import cache, calib_overlay, config, fk, lerobot, previews, robot_data, s3, svo, webbed, yam, jobs
 
 # In-flight/finished background stat scans, keyed by a per-source scan id. Held in
 # memory (a scan is cheap to restart and its per-episode records are disk-cached).
@@ -304,22 +304,31 @@ class Source:
 
     def _swr_peek(self, key: str, build) -> dict | None:
         """Like _swr but never blocks a request: the memo / persisted blob or None, and when there is nothing
-        (or it is stale) ONE background thread builds + persists it for the next call."""
+        (or it is stale) ONE background build persists it for the next call. The build runs as a jobs.py child
+        (``stats`` job, see jobs.run) so it cannot starve the API process; a stale memo re-reads the persisted
+        blob while that job is out, so the child's result is picked up."""
         now = time.time()
         with self._overview_lock:
             st = self._swr_state.setdefault(key, {})
             cur = st.get("value")
-            if cur is None and not st.get("skip_persisted"):
-                saved = cache.get_json(self._swr_blob(key), remote=True)
-                if isinstance(saved, dict) and isinstance(saved.get("built_at"), (int, float)):
-                    cur = st["value"] = saved
             fresh = cur is not None and now - float(cur["built_at"]) < config.OVERVIEW_TTL_S
+            if (cur is None or (not fresh and st.get("job"))) and not st.get("skip_persisted"):
+                saved = cache.get_json(self._swr_blob(key), remote=True)
+                if isinstance(saved, dict) and isinstance(saved.get("built_at"), (int, float)) \
+                        and (cur is None or float(saved["built_at"]) > float(cur["built_at"])):
+                    cur = st["value"] = saved
+                    st.pop("job", None)
+                    fresh = now - float(cur["built_at"]) < config.OVERVIEW_TTL_S
             th = st.get("thread")
-            if not fresh and not (th is not None and th.is_alive()):
-                th = threading.Thread(target=self._swr_build, args=(key, build), daemon=True,
-                                      name=f"swr-{key}-{self.id}")
-                st["thread"] = th
-                th.start()
+            if not fresh and not (th is not None and th.is_alive()) and now - st.get("job", 0) > 600:
+                if jobs.INLINE:
+                    th = threading.Thread(target=self._swr_build, args=(key, build), daemon=True,
+                                          name=f"swr-{key}-{self.id}")
+                    st["thread"] = th
+                    th.start()
+                else:
+                    jobs.start("stats", self.id)
+                    st["job"] = now
         return dict(cur) if cur is not None else None
 
     def _swr_build(self, key: str, build) -> dict:

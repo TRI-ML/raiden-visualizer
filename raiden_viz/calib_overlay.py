@@ -21,6 +21,8 @@ from pathlib import Path
 
 import numpy as np
 
+from . import config
+
 # BGR colors for X/Y/Z axes (OpenCV convention: red/green/blue).
 _AXIS_COLORS = ((0, 0, 255), (0, 255, 0), (255, 0, 0))
 _AXIS_LEN_M = 0.12  # 12 cm triad
@@ -29,7 +31,7 @@ _AXIS_LEN_M = 0.12  # 12 cm triad
 def extract_frame(mp4_path: Path, out_png: Path, frame_index: int = 0) -> None:
     """Pull a single frame from a decoded MP4 to PNG."""
     subprocess.run(
-        ["ffmpeg", "-y", "-loglevel", "error", "-i", str(mp4_path),
+        ["ffmpeg", "-y", "-loglevel", "error", *config.FFMPEG_THREADS, "-i", str(mp4_path),
          "-vf", f"select=eq(n\\,{frame_index})", "-vframes", "1", str(out_png)],
         check=True, capture_output=True,
     )

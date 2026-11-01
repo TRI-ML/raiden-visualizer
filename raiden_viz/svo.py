@@ -16,6 +16,8 @@ from pathlib import Path
 
 from mcap.reader import make_reader
 
+from . import config
+
 # Header layout of each side_by_side message payload.
 _HDR = struct.Struct("<II")  # (total_len, h264_len)
 
@@ -81,7 +83,7 @@ def decode_to_mp4(svo_path: Path, out_mp4: Path, eye: str = "left", fps: int = 3
     x_off = 0 if eye == "left" else half
 
     cmd = [
-        "ffmpeg", "-y", "-loglevel", "error",
+        "ffmpeg", "-y", "-loglevel", "error", *config.FFMPEG_THREADS,
         "-f", "h264", "-i", str(h264_path),
         "-vf", f"crop={half}:{height}:{x_off}:0",
         "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
