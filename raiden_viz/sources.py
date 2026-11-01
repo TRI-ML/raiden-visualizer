@@ -387,6 +387,12 @@ class Source:
         gone = [t for t in current if t not in live]
         if not gone:
             return 0
+        # A partial listing (split map still building, a failed/limited S3 walk) must not wipe a complete blob:
+        # today prod's raiden2 previews went from 28 tasks to 2 that way. Only prune when the listing looks whole.
+        if len(live) < max(1, len(current) // 2):
+            log.warning("prune_previews(%s): live listing has %d tasks vs %d in the blob; skipping the prune",
+                        self.id, len(live), len(current))
+            return 0
         kept = {t: e for t, e in current.items() if t in live}
         cache.put_json(previews.blob_name(self.id),
                        {"v": previews.PREVIEWS_V, "built_at": time.time(), "tasks": kept}, remote=True)
