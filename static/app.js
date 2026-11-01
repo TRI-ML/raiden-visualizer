@@ -1090,7 +1090,7 @@ function conventionView(c, { groups = [], expanded = false } = {}) {
         tr.appendChild(el("td", "i", String(a.i)));
         tr.appendChild(el("td", "n", a.name));
         const nd = /not documented/i.test(a.meaning);
-        tr.appendChild(el("td", nd ? "nd" : null, (nd ? "not documented" : a.meaning) + (a.range ? ` · ${a.range[0]} … ${a.range[1]}` : "")));
+        tr.appendChild(el("td", nd ? "nd" : null, nd ? "not documented" : a.meaning));   // description + unit only, no ranges (user, 2026-11-01)
         tr.appendChild(el("td", "u", a.unit || ""));
         tb.appendChild(tr);
       });
