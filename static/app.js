@@ -58,12 +58,14 @@ function initTheme() {
 // "dev and prod toggle between the features"); it is remembered in localStorage. Default: the hosted prod site
 // starts in prod, everything else in dev. `?env=` overrides for tests.
 const HOSTED = "yam-data-visualizer.robotics-apps.tri.global";
+// The hosted prod site is always the lean Prod set and has no Dev / Prod segment (user, 2026-10-31).
+const ON_PROD_HOST = location.hostname === HOSTED;
 const ENV = new URLSearchParams(location.search).get("env")
-  || localStorage.getItem("rv_env")
-  || (location.hostname === HOSTED ? "prod" : "dev");
+  || (ON_PROD_HOST ? "prod" : (localStorage.getItem("rv_env") || "dev"));
 function initEnv() {
   document.documentElement.dataset.env = ENV;
   const seg = $("#env-seg");
+  if (ON_PROD_HOST) { seg.hidden = true; return; }
   seg.querySelectorAll("button").forEach((b) => b.classList.toggle("active", b.dataset.env === ENV));
   seg.onclick = (ev) => {
     const b = ev.target.closest("button");

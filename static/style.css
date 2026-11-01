@@ -398,6 +398,7 @@ select option { background: var(--bg-elev); color: var(--text); }
 .controls { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: flex-end; }
 
 /* Segmented (eye) */
+.seg[hidden] { display: none; }
 .seg { display: inline-flex; background: var(--bg); border: 1px solid var(--border); border-radius: 7px; overflow: hidden; }
 .seg button {
   padding: 5px 12px; border: none; background: transparent; color: var(--text-dim);
