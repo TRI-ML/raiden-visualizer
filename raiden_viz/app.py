@@ -189,7 +189,10 @@ def get_catalog():
             if pv:
                 task = next(iter(pv))
                 base = {**base, "preview": {"task": task, **pv[task]}}
-        cards.append({**base, "label": spec["label"], "kind": spec["kind"], "prod": spec.get("prod", True)})
+        live = {"label": spec["label"], "kind": spec["kind"], "prod": spec.get("prod", True), "origin": spec.get("origin")}
+        if spec.get("embodiments"):   # config wins over whatever the frozen card recorded
+            live["embodiments"] = spec["embodiments"]
+        cards.append({**base, **live})
     agg = {
         "num_datasets": len(cards),
         "total_episodes": sum(c.get("num_episodes") or 0 for c in cards),
