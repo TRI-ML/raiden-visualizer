@@ -362,7 +362,7 @@ select option { background: var(--bg-elev); color: var(--text); }
 
 .content-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 260px;   /* cameras wide, metadata a narrow column */
+  grid-template-columns: minmax(0, 1fr);   /* cameras full width; the metadata lives in the sidebar */
   gap: 18px;
   align-items: start;
 }
@@ -371,7 +371,9 @@ select option { background: var(--bg-elev); color: var(--text); }
   border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden;
 }
 .video-card { grid-column: 1; }
-.meta-card  { grid-column: 2; }
+.side-meta .meta-grid { font-size: 12.5px; }
+.side-meta .meta-row { padding: 6px 0; }
+.side-meta.hidden { display: none; }
 /* Full-width cards flow in DOM order after the video/metadata row. The rollout
    card (rfm_rl rollouts only) is hidden when absent, and auto-flow closes the
    gap for us -- no explicit rows to renumber. */

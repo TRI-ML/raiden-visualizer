@@ -30,7 +30,9 @@
       </div>
     </div>
 
-    <div class="search-wrap">
+    <!-- episode filter + list hidden (user, 2026-10-31): episodes are picked from the Preview / Tasks cards and the
+         bottom episode pager; the sidebar shows the selected episode's metadata instead -->
+    <div class="search-wrap" hidden>
       <input id="episode-search" type="text" placeholder="Filter episodes…" autocomplete="off" />
     </div>
 
@@ -46,9 +48,14 @@
       <div id="task-head" class="task-head hidden"></div>
     </div>
 
-    <div class="side-section grow">
+    <div class="side-section grow" hidden>
       <label class="side-label">Episodes <span id="episode-count" class="pill"></span></label>
       <ul id="episode-list"></ul>
+    </div>
+
+    <div class="side-section side-meta hidden" id="side-meta">
+      <label class="side-label">Metadata</label>
+      <div id="meta-grid" class="meta-grid"></div>
     </div>
 
     <div class="side-foot">
@@ -258,10 +265,7 @@
           </div>
         </section>
 
-        <section class="card meta-card">
-          <div class="card-head"><h3>Metadata</h3></div>
-          <div id="meta-grid" class="meta-grid"></div>
-        </section>
+        <!-- the Metadata card moved into the left sidebar (#side-meta); the cameras take the full width -->
 
         <section class="card rollout-card hidden" id="rollout-card">
           <div class="card-head"><h3>Rollout / policy</h3><span id="rollout-generator" class="subtle mono"></span></div>

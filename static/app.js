@@ -241,6 +241,7 @@ function showOverview() {
   renderEpisodeList();
   $("#catalog-view").classList.add("hidden");
   $("#episode-view").classList.add("hidden");
+  $("#side-meta").classList.add("hidden");   // metadata belongs to an open episode only
   $("#overview-view").classList.remove("hidden");
   setPreviewPlaying(true);
   renderOverview();
@@ -259,6 +260,7 @@ function showCatalog() {
   document.body.classList.add("catalog-mode");
   $("#overview-view").classList.add("hidden");
   $("#episode-view").classList.add("hidden");
+  $("#side-meta").classList.add("hidden");
   $("#catalog-view").classList.remove("hidden");
   renderCatalog();
 }
@@ -2275,6 +2277,7 @@ function notAvailable(container, msg) {
 function renderMeta(md, d) {
   const grid = $("#meta-grid");
   grid.innerHTML = "";
+  $("#side-meta").classList.remove("hidden");   // the sidebar block shows while an episode is open
   const rs = (d.robot && d.robot.summary) || {};
   const rows = [
     ["Teacher", md.teacher_name],
