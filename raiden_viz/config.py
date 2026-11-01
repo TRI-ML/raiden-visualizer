@@ -21,7 +21,12 @@ AWS_REGION = os.environ.get("RAIDEN_AWS_REGION", "us-west-2")
 # embodiments: robots in the set, shown as pills; when absent (worldengine) they are derived from the LeRobot
 # info.json robot_type values and persisted in the stats summary (sources.EMBODIMENT_LABEL maps them).
 SOURCES = [
-    {"id": "raiden", "origin": "tri", "embodiments": ["YAM"], "label": "Raiden", "kind": "raiden", "bucket": S3_BUCKET, "prefix": S3_PREFIX},
+    # The raiden teleop prefix is split in two sources (user, 2026-10-31): "Raiden" = the legacy corpus, "Raiden 2.0" =
+    # the harvest data collected through the yam-eval console against Task Hub tasks (sources.is_harvest_task).
+    {"id": "raiden", "origin": "tri", "embodiments": ["YAM"], "label": "Raiden", "kind": "raiden", "bucket": S3_BUCKET, "prefix": S3_PREFIX,
+     "split": "legacy"},
+    {"id": "raiden2", "origin": "tri", "embodiments": ["YAM"], "label": "Raiden 2.0", "kind": "raiden", "bucket": S3_BUCKET, "prefix": S3_PREFIX,
+     "split": "harvest"},
     {"id": "yam", "origin": "open", "embodiments": ["YAM"], "label": "XDOF", "kind": "yam", "bucket": S3_BUCKET,
      "prefix": "yam_raw/2026_03_30_zed", "mcap_name": "output.mcap"},
     # YAM teleop recorded on the russet station, uploaded from ~/data/raw. Same
