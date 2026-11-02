@@ -292,6 +292,18 @@ def test_warmed_detail_is_served_without_loading_the_task_meta(monkeypatch):
     assert src.episode_detail("plate", "episode_000007") == {"source": "x", "detail": True}
 
 
+def test_cold_meta_load_is_refused_above_the_host_limit(monkeypatch):
+    src = sources.LeRobotSource(SPEC)
+    src._source_index = {"v": src.SOURCE_INDEX_V, "tasks": [{"task": "big", "ikey": "k", "episodes": 589_082}]}
+    monkeypatch.setattr(src, "_load_meta", lambda task: (_ for _ in ()).throw(AssertionError("meta loaded")))
+    monkeypatch.setattr(sources.config, "MAX_COLD_META_EPISODES", 200_000)
+    with pytest.raises(ValueError, match="589,082 episodes"):
+        src.episode_detail("big", "episode_000001")
+    monkeypatch.setattr(sources.config, "MAX_COLD_META_EPISODES", 0)      # unlimited (the box): the load proceeds
+    with pytest.raises(AssertionError, match="meta loaded"):
+        src.episode_detail("big", "episode_000001")
+
+
 def test_missing_data_parquet_gives_a_detail_without_traces(monkeypatch):
     from botocore.exceptions import ClientError
 

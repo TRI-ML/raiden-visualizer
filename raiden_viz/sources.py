@@ -1528,9 +1528,21 @@ class LeRobotSource(Source):
         with self._meta_lock:
             m = self._meta_cache.get(task)
             if m is None:
+                self._check_cold_meta(task)
                 m = self._load_meta(task)
                 self._meta_cache[task] = m
             return m
+
+    def _check_cold_meta(self, task: str) -> None:
+        """Refuse a cold meta load the host cannot hold (config.MAX_COLD_META_EPISODES); warmed episodes are served
+        from blobs and never get here."""
+        if not config.MAX_COLD_META_EPISODES:
+            return
+        idx = self._source_index if self._source_index else None
+        row = next((r for r in idx["tasks"] if r["task"] == task), None) if idx else None
+        if row and row.get("episodes", 0) > config.MAX_COLD_META_EPISODES:
+            raise ValueError(f"{task} has {row['episodes']:,} episodes; only its pre-rendered episodes can be opened "
+                             f"on this host")
 
     def _row(self, task: str, episode: str) -> tuple[dict, dict]:
         meta = self._meta(task)

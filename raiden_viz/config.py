@@ -192,6 +192,10 @@ DERIVED_BUCKET = os.environ.get("RAIDEN_DERIVED_BUCKET", "")
 # On-demand clip decodes running at once per container. A crawler decoding thousands of non-featured abc130k_val
 # episodes OOM-looped the hosted dev task (2026-11-01); hosted (derived bucket set) defaults to 2, elsewhere unlimited.
 MAX_DECODES = int(os.environ.get("RAIDEN_MAX_DECODES", "2" if DERIVED_BUCKET else "0"))
+# Largest LeRobot task meta a container loads cold (episode rows). RealOmni's realomin_s3 has 589k rows and loading it
+# for one page view OOMed the 8 GB hosted task; warmed episodes never need the meta, so hosted (derived bucket set)
+# refuses the cold load above this size with a 422, elsewhere unlimited.
+MAX_COLD_META_EPISODES = int(os.environ.get("RAIDEN_MAX_COLD_META_EPISODES", "200000" if DERIVED_BUCKET else "0"))
 DERIVED_PREFIX = os.environ.get("RAIDEN_DERIVED_PREFIX", "derived").strip("/")
 # Presigned-URL lifetime. Long enough to scrub through a clip, short enough that a
 # copied link is not a durable handle to dataset content.
