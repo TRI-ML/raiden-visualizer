@@ -1345,6 +1345,11 @@ class LeRobotSource(Source):
         else:
             jobs.start("index", self.id)
 
+    def _task_episode_indices(self, task: str, meta: dict) -> list[int]:
+        """Episode indices that belong to one viewer task (the whole meta for a
+        per-task dataset; overridden where one dataset is grouped by task label)."""
+        return sorted(meta["episodes"])
+
     def _safe_rebuild_index(self):
         try:
             self.rebuild_source_index()
@@ -1360,7 +1365,7 @@ class LeRobotSource(Source):
         for t in raw:
             try:
                 meta = self._meta(t)
-                names = [self._ep_name(i) for i in sorted(meta["episodes"])]
+                names = [self._ep_name(i) for i in self._task_episode_indices(t, meta)]
             except Exception:
                 log.exception("source index: skipping %s", t)
                 continue
@@ -1394,7 +1399,7 @@ class LeRobotSource(Source):
                     preview["poster_names"] = {c: poster_name(manifest[f"{names[0]}|{c}"])
                                                for c in cams if f"{names[0]}|{c}" in manifest}
             tasks.append({"task": t, "ikey": meta.get("ikey"), "episodes": len(names),
-                          "episode_indices": sorted(meta["episodes"]),
+                          "episode_indices": self._task_episode_indices(t, meta),
                           "latest": names[-1] if names else None,
                           "cameras": cams, "fps": info.get("fps"),
                           "preview": preview,
@@ -1854,6 +1859,9 @@ class LeRobotSingleRootSource(LeRobotSource):
 
     def _list_tasks_raw(self) -> list[str]:
         return self.list_tasks()
+
+    def _task_episode_indices(self, task: str, meta: dict) -> list[int]:
+        return sorted(meta["by_task"].get(task, []))
 
     def list_episodes(self, task: str) -> list[str]:
         idxs = self._meta()["by_task"].get(task, [])
