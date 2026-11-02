@@ -253,6 +253,23 @@ def test_single_root_facts_only_cover_the_tasks_episodes():
     assert src.episode_facts("b") == {"episode_000001": {"timestamp": None, "status": None}}
 
 
+def test_single_root_index_counts_each_task_own_episodes(monkeypatch):
+    # One LeRobot dataset grouped by task label: a task's episode count is its own
+    # group, not the whole dataset (MolmoAct showed 34 x 32246 = 1.1 M episodes).
+    src = sources.LeRobotSingleRootSource({"id": "we", "label": "WE", "kind": "lerobot_single",
+                                           "bucket": "b", "prefix": "p"})
+    src._meta_cache["__root__"] = {"info": {"cameras": [], "fps": 30}, "tasks": {}, "ikey": "k",
+                                   "by_task": {"a": [0, 2], "b": [1]},
+                                   "episodes": {0: {}, 1: {}, 2: {}}}
+    monkeypatch.setattr(src, "episode_stat", lambda t, n: {"duration_s": 1.0, "status": "success"})
+    monkeypatch.setattr(src, "prune_previews", lambda live: 0)
+    monkeypatch.setattr(sources.cache, "put_json", lambda *a, **k: None)
+    idx = src.rebuild_source_index()
+    assert {t["task"]: t["episodes"] for t in idx["tasks"]} == {"a": 2, "b": 1}
+    assert idx["total"] == 3
+    assert [t["episode_indices"] for t in idx["tasks"]] == [[0, 2], [1]]
+
+
 def test_overview_page_has_the_preview_block():
     root = Path(__file__).resolve().parents[1] / "static"
     html = (root / "index.html").read_text()
