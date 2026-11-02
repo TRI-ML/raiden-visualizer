@@ -281,6 +281,17 @@ def test_overview_page_has_the_preview_block():
 
 # ---- missing data parquet (WorldEngine points some episodes at files never uploaded) ----
 
+def test_warmed_detail_is_served_without_loading_the_task_meta(monkeypatch):
+    # RealOmni's biggest session has 589k episode rows: a page view must not load that meta when the published
+    # detail blob exists. The index carries the task's ikey, which with the episode index names the blob.
+    src = sources.LeRobotSource(SPEC)
+    src._source_index = {"v": src.SOURCE_INDEX_V, "tasks": [{"task": "plate", "ikey": "k1", "episodes": 1}]}
+    monkeypatch.setattr(src, "_meta", lambda task: (_ for _ in ()).throw(AssertionError("meta loaded")))
+    monkeypatch.setattr(sources.cache, "get_json",
+                        lambda name, remote=False: {"source": "x", "detail": True} if name == src._detail_blob("k1", 7) else None)
+    assert src.episode_detail("plate", "episode_000007") == {"source": "x", "detail": True}
+
+
 def test_missing_data_parquet_gives_a_detail_without_traces(monkeypatch):
     from botocore.exceptions import ClientError
 
