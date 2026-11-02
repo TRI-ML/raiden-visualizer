@@ -1560,6 +1560,14 @@ class LeRobotSource(Source):
         """Per-episode detail (robot traces, annotations, instruction) as ONE small
         JSON from the derived tier; computed from the packed data parquet only the
         first time (or ahead of time by warm_task) and published."""
+        # Warmed episode: the index knows the task's ikey, so the published detail is read without loading the
+        # task meta (RealOmni's biggest session is 589k episode rows; loading it per page view OOMed the 8 GB task).
+        idx = self.source_index()
+        irow = next((r for r in idx["tasks"] if r["task"] == task), None) if idx else None
+        if irow and irow.get("ikey"):
+            hit = cache.get_json(self._detail_blob(irow["ikey"], self._ep_index(episode)), remote=True)
+            if hit is not None:
+                return hit
         meta, row = self._row(task, episode)
         blob = self._detail_blob(meta.get("ikey", "nokey"), row["episode_index"])
         hit = cache.get_json(blob, remote=True) if meta.get("ikey") else None
