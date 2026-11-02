@@ -369,14 +369,19 @@ class Source:
 
     def previews(self) -> dict:
         """{task: preview entry} from the persisted previews blob; {} when the preview
-        warm has never run for this source. Memoized per container."""
+        warm has never run for this source. Memoized per container for OVERVIEW_TTL_S."""
+        now = time.time()
         with self._overview_lock:
             pv = getattr(self, "_previews_cached", None)
-        if pv is None:
+            fresh = pv is not None and now - getattr(self, "_previews_cached_at", 0.0) < config.OVERVIEW_TTL_S
+        if not fresh:
+            # Re-read after the TTL: the blob is rewritten from outside the container
+            # (box-rendered previews synced into the bucket), so a per-process memo
+            # would otherwise serve the old task set until the next restart.
             blob = cache.get_json(previews.blob_name(self.id), remote=True) or {}
             pv = blob.get("tasks", {}) if blob.get("v") == previews.PREVIEWS_V else {}
             with self._overview_lock:
-                self._previews_cached = pv
+                self._previews_cached, self._previews_cached_at = pv, now
         return pv
 
     def prune_previews(self, live_tasks) -> int:
@@ -397,7 +402,7 @@ class Source:
         cache.put_json(previews.blob_name(self.id),
                        {"v": previews.PREVIEWS_V, "built_at": time.time(), "tasks": kept}, remote=True)
         with self._overview_lock:
-            self._previews_cached = kept
+            self._previews_cached, self._previews_cached_at = kept, time.time()
         self._swr_invalidate("overview_v2")
         return len(gone)
 
@@ -436,7 +441,7 @@ class Source:
                                    {"v": previews.PREVIEWS_V, "built_at": time.time(), "tasks": current},
                                    remote=True)
                     with self._overview_lock:
-                        self._previews_cached = current
+                        self._previews_cached, self._previews_cached_at = current, time.time()
                     self._swr_invalidate("overview_v2")      # overview rows pick the entry up
             except Exception as ex:  # noqa: BLE001
                 log.exception("preview warm failed for %s/%s", self.id, task)
