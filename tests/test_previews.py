@@ -127,6 +127,7 @@ def test_catalog_card_prefers_the_small_previews(remote, monkeypatch):
     src = _Src()
     src._previews_cached = {"MakeCoffee": {"episode": "e0", "camera": "ego_camera", "cameras": ["ego_camera"],
                                            "poster_name": "pv_E_ego_camera.jpg", "clip_name": "pv_E_ego_camera.mp4"}}
+    src._previews_cached_at = time.time()
     pv = catalog._pick_preview(src, ["ego_camera"])
     assert pv["task"] == "MakeCoffee" and pv["poster_name"] == "pv_E_ego_camera.jpg"
 
@@ -180,6 +181,7 @@ def test_lerobot_index_rebuild_prunes_previews(remote, monkeypatch):
     src = sources.LeRobotSource({"id": "yam_sim", "label": "x", "kind": "lerobot",
                                  "bucket": "tri-yam", "prefix": "sim_datasets", "subdir": "lerobot"})
     src._previews_cached = {"gone": {"episode": "e"}, "plate": {"episode": "e"}}
+    src._previews_cached_at = time.time()
     info = {"fps": 30, "cameras": ["scene_camera"], "video_keys": {}, "video_path": "", "data_path": ""}
     src._meta_cache["plate"] = {"info": info, "tasks": {}, "episodes": {}, "ikey": "k"}
     monkeypatch.setattr(src, "_list_tasks_raw", lambda: ["plate"])
@@ -205,3 +207,15 @@ def test_preview_warm_reports_the_last_error_when_every_pick_fails(remote, monke
     monkeypatch.setattr(previews, "build_for", lambda s, task, ep, wd: (_ for _ in ()).throw(ValueError("stub file")))
     res = src.preview_warm()
     assert res["failed"] == [("MakeCoffee", "ValueError: stub file")]
+
+
+def test_previews_memo_rereads_the_blob_after_the_ttl(remote, monkeypatch):
+    # The blob is rewritten from outside the container (box-rendered previews synced
+    # into the bucket); the per-process memo must pick that up without a restart.
+    src = _Src()
+    cache.put_json(previews.blob_name(src.id), {"v": previews.PREVIEWS_V, "tasks": {"a": {"episode": "e"}}}, remote=True)
+    assert set(src.previews()) == {"a"}
+    cache.put_json(previews.blob_name(src.id), {"v": previews.PREVIEWS_V, "tasks": {"a": {}, "b": {}}}, remote=True)
+    assert set(src.previews()) == {"a"}            # memo still fresh
+    src._previews_cached_at -= config.OVERVIEW_TTL_S + 1
+    assert set(src.previews()) == {"a", "b"}
