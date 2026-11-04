@@ -135,7 +135,7 @@ SOURCES = [
                "PutOrangeInCenterOfTable", "PickAndPlaceBox", "BimanualVacuumTeaLeaves"]},
     # Chen's copy of one LBM task (533 real episodes, station ruggles) in our own account — same layout.
     {"id": "lbm_bikerotor", "arms": 2, "prod": False, "origin": "tri", "embodiments": ["Franka (bimanual)"], "label": "LBM bike rotor (real)",
-     "kind": "lbm", "bucket": "chen-lbm-bikerotor-share", "prefix": "", "tasks": "all"},
+     "kind": "lbm", "bucket": "chen-lbm-bikerotor-share", "prefix": "", "tasks": "all", "requires_access": True},
 ]
 
 # Ge's "webbed" AnyData export of the UW YAM teleop corpora: one folder per dataset, a split_all.json
