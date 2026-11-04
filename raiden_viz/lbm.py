@@ -131,13 +131,43 @@ def _npy_header(m) -> tuple[tuple, np.dtype]:
     return tuple(hdr["shape"]), np.dtype(hdr["descr"])
 
 
-def first_frame(obs_key: str, bucket: str, size: int, camera: str) -> np.ndarray:
-    """Frame 0 of one camera by inflating only the start of its member (~1 MB fetched)."""
+def first_frames(obs_key: str, bucket: str, size: int, camera: str, n: int = 1) -> np.ndarray:
+    """The first ``n`` frames (fewer if the episode is shorter) of one camera, (n, H, W, 3) uint8, by inflating only
+    the start of its member: deflate streams decode front to back, so a head read costs the bytes of those frames."""
     z, _ = open_npz(obs_key, bucket, size)
     with z.open(camera + ".npy") as m:
         shape, dt = _npy_header(m)
-        n = int(np.prod(shape[1:])) * dt.itemsize
-        return np.frombuffer(m.read(n), dt).reshape(shape[1:])
+        n = min(n, shape[0])
+        frame_bytes = int(np.prod(shape[1:])) * dt.itemsize
+        return np.frombuffer(m.read(n * frame_bytes), dt).reshape((n, *shape[1:]))
+
+
+def first_frame(obs_key: str, bucket: str, size: int, camera: str) -> np.ndarray:
+    """Frame 0 of one camera (~1 MB fetched)."""
+    return first_frames(obs_key, bucket, size, camera, 1)[0]
+
+
+def _ffmpeg_rgb24(dst: Path, w: int, h: int, fps: float) -> subprocess.Popen:
+    cmd = ["ffmpeg", "-y", "-loglevel", "error", *config.FFMPEG_THREADS, "-f", "rawvideo", "-pix_fmt", "rgb24",
+           "-s", f"{w}x{h}", "-r", str(fps), "-i", "-", "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
+           "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-f", "mp4", str(dst)]
+    return subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+
+
+def _finish(proc: subprocess.Popen) -> None:
+    proc.stdin.close()
+    err = proc.stderr.read()
+    if proc.wait() != 0:
+        raise RuntimeError(f"ffmpeg encode failed: {err.decode(errors='replace')[-400:]}")
+
+
+def frames_to_mp4(frames: np.ndarray, dst: Path, fps: float = FPS) -> None:
+    """(n, H, W, 3) uint8 -> H.264 mp4."""
+    proc = _ffmpeg_rgb24(dst, frames.shape[2], frames.shape[1], fps)
+    try:
+        proc.stdin.write(np.ascontiguousarray(frames).tobytes())
+    finally:
+        _finish(proc)
 
 
 def camera_to_mp4(obs_key: str, bucket: str, size: int, camera: str, dst: Path, fps: float = FPS,
@@ -152,18 +182,12 @@ def camera_to_mp4(obs_key: str, bucket: str, size: int, camera: str, dst: Path, 
         shape, dt = _npy_header(m)
         t, h, w = shape[0], shape[1], shape[2]
         frame_bytes = int(np.prod(shape[1:])) * dt.itemsize
-        cmd = ["ffmpeg", "-y", "-loglevel", "error", *config.FFMPEG_THREADS, "-f", "rawvideo", "-pix_fmt", "rgb24",
-               "-s", f"{w}x{h}", "-r", str(fps), "-i", "-", "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
-               "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-f", "mp4", str(dst)]
-        proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+        proc = _ffmpeg_rgb24(dst, w, h, fps)
         try:
             for _ in range(t):
                 proc.stdin.write(m.read(frame_bytes))
         finally:
-            proc.stdin.close()
-            err = proc.stderr.read()
-            if proc.wait() != 0:
-                raise RuntimeError(f"ffmpeg encode failed: {err.decode(errors='replace')[-400:]}")
+            _finish(proc)
 
 
 def robot_summary(arrs: dict, actions: np.ndarray | None, fps: float = FPS, max_points: int = MAX_POINTS) -> dict:

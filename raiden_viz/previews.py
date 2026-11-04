@@ -244,8 +244,31 @@ def build_webbed(src, task: str, episode: str, workdir: Path) -> dict[str, tuple
     return out
 
 
+def build_lbm(src, task: str, episode: str, workdir: Path) -> dict[str, tuple[str, str]]:
+    """LBM spartan: the camera members of observations.npz are deflate streams, so the first CLIP_SECONDS of a camera
+    (50 frames at 10 Hz, ~15 MB compressed) come from a partial inflate of the member head — never the whole
+    800 MB member. Keyed by the npz etag like the episode's clips."""
+    from . import lbm
+    e = src._ep(task, episode)
+    ex = src._mine(task, episode)
+    fps = ex.get("fps") or lbm.FPS
+    out = {}
+    for cam in ex["cameras"]:
+        pj, pm = asset_names(e["etag"], cam)
+        if cache.remote_ready(pj) and cache.remote_ready(pm):
+            out[cam] = (pj, pm)
+            continue
+        frames = lbm.first_frames(e["obs_key"], src.bucket, e["size"], cam, round(CLIP_SECONDS * fps))
+        head = workdir / f"{cam}_head.mp4"
+        lbm.frames_to_mp4(frames, head, fps=fps)
+        out[cam] = publish_assets(e["etag"], cam, lambda a, b, c=head: render_assets(c, a, b))
+    return out
+
+
 def build_for(src, task: str, episode: str, workdir: Path) -> dict[str, tuple[str, str]]:
     kind = src.spec.get("kind")
+    if kind == "lbm":
+        return build_lbm(src, task, episode, workdir)
     if kind == "webbed":
         return build_webbed(src, task, episode, workdir)
     if kind in ("lerobot", "lerobot_single"):

@@ -119,3 +119,36 @@ def test_source_detail_and_stat(bucket, cache_dir, monkeypatch):
     assert src.episode_facts("AssembleBaconSandwich")[eps[0]]["timestamp"] == "2024-01-11T12:52:02-05:00"
     with pytest.raises(FileNotFoundError):
         src.video_path("AssembleBaconSandwich", eps[0], "nope", "left")
+
+
+def test_first_frames_partial_inflate_and_clip(bucket, tmp_path):
+    objs, _ = bucket
+    key = f"{EP}/observations.npz"
+    frames = lbm.first_frames(key, "b", len(objs[key]), "6CD146030E9B", 3)
+    full = np.load(io.BytesIO(zipfile.ZipFile(io.BytesIO(objs[key])).read("6CD146030E9B.npy")))
+    assert frames.shape == (3, H, W, 3) and np.array_equal(frames, full[:3])
+    assert lbm.first_frames(key, "b", len(objs[key]), "6CD146030E9B", 99).shape[0] == T   # shorter episode: all frames
+    lbm.frames_to_mp4(frames, tmp_path / "head.mp4", fps=10)
+    assert (tmp_path / "head.mp4").stat().st_size > 0
+
+
+def test_preview_builder_for_lbm(bucket, cache_dir, monkeypatch, tmp_path):
+    from raiden_viz import previews
+    monkeypatch.setattr(sources.cache, "get_json", lambda name, remote=False: None)
+    monkeypatch.setattr(sources.cache, "put_json", lambda name, value, remote=False: None)
+    monkeypatch.setattr(previews.cache, "remote_ready", lambda name: False)
+    published = {}
+
+    def publish(key, cam, render):
+        a, b = tmp_path / f"{key}_{cam}.jpg", tmp_path / f"{key}_{cam}.mp4"
+        render(a, b)
+        published[cam] = (key, a.stat().st_size > 0, b.stat().st_size > 0)
+        return (f"pv_{key}_{cam}.jpg", f"pv_{key}_{cam}.mp4")
+
+    monkeypatch.setattr(previews, "publish_assets", publish)
+    src = sources.LbmSource({"id": "lbm_real", "label": "LBM", "kind": "lbm", "bucket": "robotics-manip-lbm",
+                             "prefix": "efs/data/tasks", "tasks": ["AssembleBaconSandwich"]})
+    ep = src.list_episodes("AssembleBaconSandwich")[0]
+    out = previews.build_for(src, "AssembleBaconSandwich", ep, tmp_path)
+    assert out == {"6CD146030E9B": ("pv_e_6CD146030E9B.jpg", "pv_e_6CD146030E9B.mp4")}   # keyed by the npz etag
+    assert published["6CD146030E9B"] == ("e", True, True)
