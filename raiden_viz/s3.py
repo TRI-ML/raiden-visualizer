@@ -52,8 +52,9 @@ def _bucket(bucket: str | None) -> str:
 
 
 def list_dirs(prefix: str, bucket: str | None = None) -> list[str]:
-    """List immediate subdirectory names under an S3 prefix (one level)."""
-    prefix = prefix.rstrip("/") + "/"
+    """List immediate subdirectory names under an S3 prefix (one level). An empty prefix lists the bucket root."""
+    prefix = prefix.strip("/")
+    prefix = prefix + "/" if prefix else ""
     paginator = _client(bucket).get_paginator("list_objects_v2")
     names: list[str] = []
     for page in paginator.paginate(Bucket=_bucket(bucket), Prefix=prefix, Delimiter="/"):

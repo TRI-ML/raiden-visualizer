@@ -17,6 +17,7 @@ YamMcapSource: <prefix>/<task>/episode_<uuid>/output.mcap  (one Foxglove-protobu
 """
 
 import hashlib
+import io
 import os
 import random
 import re
@@ -29,9 +30,11 @@ from pathlib import Path
 
 import logging
 
+import numpy as np
+
 from botocore.exceptions import ClientError
 
-from . import argus, cache, calib_overlay, config, fk, lerobot, previews, robot_data, s3, svo, webbed, yam, jobs
+from . import argus, cache, calib_overlay, config, fk, lbm, lerobot, previews, robot_data, s3, svo, webbed, yam, jobs
 
 # In-flight/finished background stat scans, keyed by a per-source scan id. Held in
 # memory (a scan is cheap to restart and its per-episode records are disk-cached).
@@ -2065,8 +2068,150 @@ class WebbedSource(Source):
                 "timestamp": obj.last_modified if obj else None, "has_annotations": None}
 
 
+
+class LbmSource(Source):
+    """TRI LBM spartan episodes: ``<prefix>/<task>/<station>/real/bc/teleop/<session>/diffusion_spartan/episode_<n>/
+    processed/{observations.npz, actions.npz}`` (see lbm.py). One recursive listing per task finds the real teleop
+    episodes, their cameras and dates; a config ``tasks`` allow-list keeps the 1,195-task LBM tree browsable
+    (``tasks: "all"`` walks everything). Low-dim comes from range GETs on the npz; clips stream one camera member
+    each (gigabyte-scale, so ``video_max_mb`` caps them) and are kept in the derived tier like the other adapters."""
+
+    def __init__(self, spec):
+        super().__init__(spec)
+        self._eps: dict[str, dict] = {}
+        self._eps_lock = threading.Lock()
+
+    def list_tasks(self) -> list[str]:
+        allow = self.spec.get("tasks", "all")
+        tasks = super().list_tasks()
+        return tasks if allow == "all" else [t for t in tasks if t in set(allow)]
+
+    def _episodes(self, task: str) -> dict[str, dict]:
+        """One recursive listing per station, restricted to its ``real/bc/teleop`` branch: the sim and policy-rollout
+        branches beside it hold most of a task's objects (rollouts alone are 122 TB) and would make the walk minutes."""
+        with self._eps_lock:
+            if task not in self._eps:
+                root = f"{self.prefix}/{task}".lstrip("/")
+                stations = s3.list_dirs(root, bucket=self.bucket)
+                with ThreadPoolExecutor(max_workers=8) as ex:
+                    listings = ex.map(lambda st: s3.list_keys(f"{root}/{st}{lbm.TELEOP}", bucket=self.bucket), stations)
+                self._eps[task] = lbm.discover([o for objs in listings for o in objs])
+            return self._eps[task]
+
+    def list_episodes(self, task: str) -> list[str]:
+        eps = self._episodes(task)
+        return sorted(eps, key=lambda k: (eps[k]["station"], eps[k]["session"], eps[k]["n"]))   # chronological per station
+
+    def _ep(self, task, episode) -> dict:
+        e = self._episodes(task).get(episode)
+        if e is None:
+            raise FileNotFoundError(f"no observations.npz for {task}/{episode}")
+        return e
+
+    def episode_time(self, task, episode):
+        return lbm.session_time(self._ep(task, episode)["session"])
+
+    def episode_facts(self, task):
+        return {eid: {"timestamp": lbm.session_time(e["session"]), "status": None} for eid, e in self._episodes(task).items()}
+
+    def _processed(self, e: dict) -> str:
+        return e["obs_key"].rsplit("/", 1)[0]
+
+    def _summary(self, e: dict) -> dict:
+        """``demonstration_<n>/summary.yaml`` of the session: {success, last_t} when present."""
+        key = e["obs_key"].split("/diffusion_spartan/", 1)[0] + f"/demonstration_{e['n']}/summary.yaml"
+        try:
+            text = s3.get_bytes(key, bucket=self.bucket).decode()
+        except (ClientError, UnicodeDecodeError):   # sessions without a summary (stubs, old recordings)
+            return {}
+        out = {}
+        for line in text.splitlines():
+            k, _, v = line.partition(":")
+            if k.strip() in ("success", "last_t"):
+                out[k.strip()] = v.strip()
+        return out
+
+    @staticmethod
+    def _blob(e: dict) -> str:
+        return f"lbm_{hashlib.sha1(e['obs_key'].encode()).hexdigest()[:16]}"
+
+    def _mine(self, task, episode) -> dict:
+        """Low-dim + facts for one episode, read once by range GETs and kept in the derived tier."""
+        e = self._ep(task, episode)
+        ex = cache.get_json(self._blob(e) + "_meta.json", remote=True)
+        if ex is not None:
+            return ex
+        arrs, nbytes = lbm.lowdim(e["obs_key"], self.bucket, e["size"])
+        actions = None
+        try:
+            actions = np.load(io.BytesIO(s3.get_bytes(f"{self._processed(e)}/actions.npz", bucket=self.bucket)))["actions"]
+        except (ClientError, KeyError, OSError, ValueError):   # episode without a commanded stream
+            pass
+        summ = self._summary(e)
+        n = max((np.asarray(a).shape[0] for a in arrs.values()), default=0)
+        last_t = float(summ["last_t"]) if summ.get("last_t") else None
+        fps = round(n / last_t, 1) if last_t and n else lbm.FPS
+        ex = {"robot": lbm.robot_summary(arrs, actions, fps=fps), "fps": fps, "frames": n,
+              "duration_s": round(n / fps, 2) if fps else None, "bytes_fetched": nbytes,
+              "status": {"true": "success", "false": "failure"}.get(summ.get("success", "").lower()),
+              "cameras": e["cameras"] or lbm.cameras_of(lbm.open_npz(e["obs_key"], self.bucket, e["size"])[0])}
+        cache.put_json(self._blob(e) + "_meta.json", ex, remote=True)
+        return ex
+
+    def episode_detail(self, task, episode):
+        e = self._ep(task, episode)
+        ex = self._mine(task, episode)
+        return {
+            "source": self.id, "task": task, "episode": episode,
+            "instruction": re.sub(r"(?<!^)(?=[A-Z])", " ", task).lower(), "status": ex["status"],
+            "metadata": {"station": e["station"], "session": lbm.session_time(e["session"]), "control_hz": ex["fps"],
+                         "duration_s": ex["duration_s"], "frames": ex["frames"], "task_instruction": None},
+            "calibration": None,
+            "cameras": [{"name": c, "has_video": True, "eyes": ["left"]} for c in ex["cameras"]],
+            "robot": ex["robot"], "annotations": [],
+        }
+
+    def video_cache_name(self, task, episode, camera, eye):
+        return f"{self._blob(self._ep(task, episode))}_{camera}.mp4"
+
+    def video_path(self, task, episode, camera, eye):
+        e = self._ep(task, episode)
+        ex = self._mine(task, episode)
+        if camera not in ex["cameras"]:
+            raise FileNotFoundError(f"camera {camera!r} not found in {task}/{episode}")
+        cap = int(float(self.spec.get("video_max_mb", 1200)) * 1e6)
+        return cache.get_or_create(self.video_cache_name(task, episode, camera, eye),
+                                   lambda dst: lbm.camera_to_mp4(e["obs_key"], self.bucket, e["size"], camera, dst,
+                                                                 fps=ex["fps"], max_bytes=cap))
+
+    def poster_path(self, task, episode, camera, eye):
+        """First frame straight from the npz (~1 MB), without rendering the clip."""
+        e = self._ep(task, episode)
+
+        def _produce(dst: Path):
+            import cv2
+            frame = lbm.first_frame(e["obs_key"], self.bucket, e["size"], camera)
+            ok, jpg = cv2.imencode(".jpg", cv2.cvtColor(np.ascontiguousarray(frame), cv2.COLOR_RGB2BGR), [cv2.IMWRITE_JPEG_QUALITY, 85])
+            if not ok:
+                raise RuntimeError("jpeg encode failed")
+            Path(dst).write_bytes(jpg.tobytes())   # the scratch path carries no extension, so imwrite cannot pick a codec
+
+        return cache.get_or_create(poster_name(self.video_cache_name(task, episode, camera, eye)), _produce)
+
+    def _stat_head(self, task, episode):
+        e = self._ep(task, episode)   # the scan keys stat records by the observations.npz etag
+        return s3.S3Object(key=e["obs_key"], size=e["size"], etag=e["etag"], last_modified=e["last_modified"])
+
+    def episode_stat(self, task, episode):
+        e = self._ep(task, episode)
+        ex = self._mine(task, episode)
+        return {"task": task, "episode": episode, "num_cameras": len(ex["cameras"]), "duration_s": ex["duration_s"],
+                "robot_frames": ex["frames"], "robot_hz": ex["fps"], "status": ex["status"], "station": e["station"],
+                "teacher": None, "control": "teleop", "timestamp": lbm.session_time(e["session"]),
+                "has_annotations": False, "n_annotations": 0, "robot_type": "dual_franka_panda"}
+
 _KINDS = {"raiden": RaidenSource, "raiden_rollouts": RolloutSource, "yam": YamMcapSource, "lerobot": LeRobotSource,
-          "lerobot_single": LeRobotSingleRootSource, "webbed": WebbedSource}
+          "lerobot_single": LeRobotSingleRootSource, "webbed": WebbedSource, "lbm": LbmSource}
 _SOURCES: dict[str, Source] = {}
 
 
