@@ -151,6 +151,13 @@ _G1 = _conv(
     "Each step stores the humanoid's joint angles under the repo's own per-joint names; the layout is not verified.",
     state="joint angles named per joint (arms and hands, or legs, waist and arms, depending on the repo)", action=None,
     frame="joint space", rotation=None, gripper=None, rate="30 Hz", docs=["robotics-cam-data meta/info.json"])
+_LBM = _conv(
+    "Each step stores both Panda arms' measured flange poses, gripper widths and joint angles, plus the commanded pose targets.",
+    state="per arm: flange position (xyz, m), orientation as the first two rows of R (6 values), gripper width (m); joints and wrenches alongside",
+    action="absolute pose targets, xyz + 6-D rotation + gripper width per arm (20 values)",
+    frame="each arm in its own station base frame; the stored pose is the Panda flange (tool constant identity)",
+    rotation="rot_6d = first two rows of the rotation matrix", gripper="panda_hand width in metres (0 closed … 0.08 open)",
+    rate="10 Hz", docs=["Zheyuan Hu's LBM dataset card (Loong docs/data_curation/cards/lbm.md)"])
 
 CONVENTIONS = {
     "raiden": _RAIDEN, "raiden2": _RAIDEN, "yam_russet": _RAIDEN, "policy_rollouts": _RAIDEN, "eval_rollouts": _RAIDEN,
@@ -159,6 +166,7 @@ CONVENTIONS = {
     "agibot26": _V3AR_AGIBOT, "agibot_beta": _V3AR_AGIBOT,
     "webbed": _WEBBED, "worldengine": _WORLDENGINE, "molmoact2_yam": _MOLMO, "yam_sim": _YAM_SIM,
     "hiw500": _G1, "g1_dex3": _G1,
+    "lbm_real": _LBM, "lbm_bikerotor": _LBM,
 }
 
 _UNDOCUMENTED = _conv("The state convention of this dataset is not documented.", None)
@@ -167,6 +175,7 @@ _UNDOCUMENTED = _conv("The state convention of this dataset is not documented.",
 REALOMNI_NAMES = [f"{a}_{n}" for a in ("left", "right") for n in ("tcp_x", "tcp_y", "tcp_z", *[f"rot6d_{k}" for k in range(6)], "fraction_open")]
 WE_NAMES = [f"{a}_{n}" for a in ("left", "right") for n in (*WE_JOINT_NAMES, "gripper")]
 MOLMO_NAMES = [f"{a}_{n}" for a in ("left", "right") for n in (*[f"joint_{k}.pos" for k in range(6)], "gripper.pos")]
+LBM_NAMES = [f"{a}_{n}" for a in ("left", "right") for n in ("x", "y", "z", *[f"rot6d_{k}" for k in range(6)], "gripper_width")]
 STATE_VECTOR = {
     **{s: [("follower_l_joint_pos_7d", 7, None), ("follower_r_joint_pos_7d", 7, None)] for s in ("raiden", "raiden2", "yam_russet", "policy_rollouts", "eval_rollouts")},
     **{s: [("left_arm_state", 6, None), ("left_ee_state", 1, None), ("right_arm_state", 6, None), ("right_ee_state", 1, None)] for s in ("yam", "abc130k", "abc130k_val", "xdof_zed")},
@@ -177,6 +186,7 @@ STATE_VECTOR = {
     "molmoact2_yam": [("l_joint_pos", 6, MOLMO_NAMES[:6]), ("l_gripper_pos", 1, None), ("r_joint_pos", 6, MOLMO_NAMES[7:13]), ("r_gripper_pos", 1, None)],
     "yam_sim": [("joint_pos", 14, None)],
     "hiw500": [("joint_pos", 29, None)], "g1_dex3": [("joint_pos", 28, None)],
+    **{s: [("action", 20, LBM_NAMES)] for s in ("lbm_real", "lbm_bikerotor")},
 }
 
 

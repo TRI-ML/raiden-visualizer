@@ -125,6 +125,17 @@ SOURCES = [
     # Sibling folders left out: brainco/wbt (other hands) and dex1 (v2.1).
     {"id": "g1_dex3", "arms": 2, "origin": "tri", "embodiments": ["Unitree G1"], "label": "Unitree G1 Dex3 (CAM)", "kind": "lerobot",
      "bucket": "robotics-cam-data", "prefix": "platform/unitree_g1_dex3/unitree_lerobot/dex3", "requires_access": True},
+    # TRI LBM spartan real-robot teleop (bimanual Panda), see lbm.py. The LBM bucket (account 682769330988) has
+    # 1,195 task dirs, most of them config stubs; `tasks` is the browsed allow-list ("all" walks the whole tree).
+    # Real branch only (`real/bc/teleop`), the sim branch is never listed. Readable from the SSO role and the
+    # aws-anthony-1 instance role, not from the hosted Fargate tasks (requires_access hides it there).
+    {"id": "lbm_real", "arms": 2, "prod": False, "origin": "tri", "embodiments": ["Franka (bimanual)"], "label": "LBM (real teleop)",
+     "kind": "lbm", "bucket": "robotics-manip-lbm", "prefix": "efs/data/tasks", "requires_access": True,
+     "tasks": ["AssembleBaconSandwich", "AssembleEggSandwich", "AssembleBabyBottle", "FoldTowel", "AddBeansToSalad",
+               "PutOrangeInCenterOfTable", "PickAndPlaceBox", "BimanualVacuumTeaLeaves"]},
+    # Chen's copy of one LBM task (533 real episodes, station ruggles) in our own account — same layout.
+    {"id": "lbm_bikerotor", "arms": 2, "prod": False, "origin": "tri", "embodiments": ["Franka (bimanual)"], "label": "LBM bike rotor (real)",
+     "kind": "lbm", "bucket": "chen-lbm-bikerotor-share", "prefix": "", "tasks": "all"},
 ]
 
 # Ge's "webbed" AnyData export of the UW YAM teleop corpora: one folder per dataset, a split_all.json
