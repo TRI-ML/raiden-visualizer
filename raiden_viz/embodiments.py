@@ -147,12 +147,18 @@ _YAM_SIM = _conv(
     state=None, action=None, frame=None, rotation=None, gripper=None, rate="30 Hz",
     docs=["tri-yam sim_datasets lerobot meta/info.json"])
 
+_G1 = _conv(
+    "Each step stores the humanoid's joint angles under the repo's own per-joint names; the layout is not verified.",
+    state="joint angles named per joint (arms and hands, or legs, waist and arms, depending on the repo)", action=None,
+    frame="joint space", rotation=None, gripper=None, rate="30 Hz", docs=["robotics-cam-data meta/info.json"])
+
 CONVENTIONS = {
     "raiden": _RAIDEN, "raiden2": _RAIDEN, "yam_russet": _RAIDEN, "policy_rollouts": _RAIDEN, "eval_rollouts": _RAIDEN,
     "yam": _ABC, "abc130k": _ABC, "abc130k_val": _ABC, "xdof_zed": _ABC,
     "droid": _V3AR_DROID, "realomni": _V3AR_REALOMNI, "habit": _V3AR_HABIT,
     "agibot26": _V3AR_AGIBOT, "agibot_beta": _V3AR_AGIBOT,
     "webbed": _WEBBED, "worldengine": _WORLDENGINE, "molmoact2_yam": _MOLMO, "yam_sim": _YAM_SIM,
+    "hiw500": _G1, "g1_dex3": _G1,
 }
 
 _UNDOCUMENTED = _conv("The state convention of this dataset is not documented.", None)
@@ -170,6 +176,7 @@ STATE_VECTOR = {
     "worldengine": [("l_joint_pos", 6, WE_NAMES[:6]), ("l_gripper_pos", 1, None), ("r_joint_pos", 6, WE_NAMES[7:13]), ("r_gripper_pos", 1, None)],
     "molmoact2_yam": [("l_joint_pos", 6, MOLMO_NAMES[:6]), ("l_gripper_pos", 1, None), ("r_joint_pos", 6, MOLMO_NAMES[7:13]), ("r_gripper_pos", 1, None)],
     "yam_sim": [("joint_pos", 14, None)],
+    "hiw500": [("joint_pos", 29, None)], "g1_dex3": [("joint_pos", 28, None)],
 }
 
 
