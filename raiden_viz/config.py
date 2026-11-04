@@ -116,6 +116,15 @@ SOURCES = [
     # keep only their card) are skipped by list_tasks.
     {"id": "yam_sim", "arms": 2, "prod": False, "origin": "tri", "embodiments": ["YAM"], "label": "YAM Sim (Isaac twin)", "kind": "lerobot",
      "bucket": "tri-yam", "prefix": "sim_datasets", "subdir": "lerobot"},
+    # CAM team bucket (LBM account 682769330988, us-east-1). Its policy trusts our SSO role but not the hosted task
+    # roles, so these register only where readable (requires_access). HIW-500: BitRobot's humanoids-in-the-wild
+    # set (CC-BY-4.0), one LeRobot v3.0 repo at the prefix root, Unitree G1, 29-D joint state, head + two wrist cams.
+    {"id": "hiw500", "arms": 2, "origin": "open", "embodiments": ["Unitree G1"], "label": "HIW-500 (Unitree G1)", "kind": "lerobot_single",
+     "bucket": "robotics-cam-data", "prefix": "external_datasets/hiw-500/lerobot", "requires_access": True},
+    # CAM's own Unitree G1 + Dex3 hands collection, one LeRobot v3.0 repo per task (28-D joint state, two head cams).
+    # Sibling folders left out: brainco/wbt (other hands) and dex1 (v2.1).
+    {"id": "g1_dex3", "arms": 2, "origin": "tri", "embodiments": ["Unitree G1"], "label": "Unitree G1 Dex3 (CAM)", "kind": "lerobot",
+     "bucket": "robotics-cam-data", "prefix": "platform/unitree_g1_dex3/unitree_lerobot/dex3", "requires_access": True},
 ]
 
 # Ge's "webbed" AnyData export of the UW YAM teleop corpora: one folder per dataset, a split_all.json
